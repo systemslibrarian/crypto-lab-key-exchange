@@ -1,0 +1,280 @@
+/* extra.css — components specific to the key-exchange evolution demo.
+ * Every color references a CSS variable from style.css; no hex literals. */
+
+/* Generation timeline rail */
+.gen-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.gen-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-strong);
+  color: var(--ink-strong);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.gen-pill:hover {
+  transform: translateY(-1px);
+}
+
+.gen-pill:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 3px;
+}
+
+.gen-pill.is-active {
+  background: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+  border-color: transparent;
+}
+
+.gen-pill-year {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--accent);
+}
+
+.gen-pill.is-active .gen-pill-year {
+  color: var(--accent-3);
+}
+
+.gen-pill-name {
+  font-size: 0.95rem;
+}
+
+.gen-pill-chip {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chip-safe {
+  background: rgba(19, 111, 99, 0.12);
+  color: var(--accent-4);
+}
+
+.chip-broken {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.gen-detail {
+  margin-top: 18px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--panel-strong);
+}
+
+.gen-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.gen-detail h3 {
+  margin: 4px 0 0;
+  color: var(--ink-strong);
+}
+
+.gen-dl {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(0, 3fr);
+  gap: 12px 22px;
+  margin: 0;
+}
+
+.gen-dl dt {
+  color: var(--ink-soft);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.gen-dl dd {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+/* Playground inputs (DH and ECDH) */
+.kx-inputs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.kx-inputs label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+.kx-inputs input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--input-bg);
+  color: var(--ink-strong);
+  font-family: var(--mono);
+  font-size: 1rem;
+}
+
+.kx-inputs input:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+.kx-output {
+  margin-top: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.kx-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.kx-side {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-strong);
+}
+
+.kx-side .mono-inline + .mono-inline {
+  margin-top: 10px;
+}
+
+.kx-status {
+  margin: 4px 0 0;
+  font-family: var(--mono);
+}
+
+.kx-curve {
+  margin: 14px 0 0;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-strong);
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  color: var(--ink-strong);
+}
+
+.kx-curve code {
+  background: transparent;
+}
+
+.kx-actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.kx-footnote {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  font-size: 0.92rem;
+}
+
+.attack-output:not(:empty) {
+  margin-top: 14px;
+}
+
+.attack-card {
+  padding: 18px;
+  border: 1px solid var(--warning-border);
+  border-radius: 20px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.attack-card .mono-inline {
+  background: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+}
+
+.attack-card .kx-footnote {
+  color: var(--warning-fg);
+}
+
+/* Footer */
+.footer-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.footer-meta-item {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-strong);
+}
+
+.scripture {
+  margin: 18px 0 0;
+  color: var(--ink-soft);
+  font-style: italic;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* Inline code chips */
+code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(11, 127, 171, 0.08);
+  color: var(--accent);
+}
+
+[data-theme="dark"] code {
+  background: rgba(77, 195, 247, 0.12);
+}
+
+@media (max-width: 900px) {
+  .kx-inputs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kx-grid,
+  .footer-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .gen-dl {
+    grid-template-columns: 1fr;
+  }
+
+  .gen-dl dt {
+    margin-top: 6px;
+  }
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      (function () {
+        const saved = localStorage.getItem('theme');
+        document.documentElement.setAttribute('data-theme', saved ?? 'dark');
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta
+      name="description"
+      content="Key Exchange Evolution — an interactive walk from Diffie–Hellman (1976) through ECDH, X25519, ML-KEM, and hybrid X25519+ML-KEM. Live DH and ECDH playgrounds, a working discrete-log attack on tiny parameters, and a flow model of ML-KEM encapsulation and hybrid combine."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Key Exchange Evolution — crypto-lab" />
+    <meta
+      property="og:description"
+      content="Five generations of key exchange, from Diffie–Hellman to hybrid X25519+ML-KEM. Interactive arithmetic, a live discrete-log attack on toy parameters, and a flow model for KEMs and the hybrid combine."
+    />
+    <meta property="og:url" content="https://systemslibrarian.github.io/crypto-lab-key-exchange/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Key Exchange Evolution — crypto-lab" />
+    <meta
+      name="twitter:description"
+      content="DH → ECDH → X25519 → ML-KEM → hybrid. Live arithmetic, a working discrete-log break on tiny primes, and the modern migration story."
+    />
+    <title>Key Exchange Evolution — crypto-lab</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#playground-heading">Skip to content</a>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
