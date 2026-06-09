@@ -28,7 +28,6 @@ import {
 	HISTORY,
 	REFERENCES,
 	SIZES,
-	WHY_IT_MATTERS,
 	type Generation,
 } from './data.ts';
 
@@ -790,6 +789,33 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 			<button id="hybrid-run" class="tab-button" type="button">Combine DH + KEM</button>
 		</div>
 		<div id="hybrid-output" class="kx-output" aria-live="polite"></div>
+		<details class="why-details hybrid-security">
+			<summary>Why is the combined key "secure if either half holds"?</summary>
+			<p>
+				The exact argument depends on the chosen KDF. In the production TLS 1.3
+				hybrid draft (Stebila / Fluhrer / Gueron), the session key is
+				<code>HKDF-Extract(salt, x25519_secret ‖ mlkem_secret)</code>. Two standard
+				properties feed into the security claim:
+			</p>
+			<ol>
+				<li><strong>The KDF is a dual-PRF / random oracle.</strong> An adversary
+				who knows only one of the two inputs learns nothing about the output. So
+				even if a quantum adversary recovers the X25519 secret via Shor, the
+				ML-KEM secret still entropy-extracts to a uniform key. Symmetrically: if
+				ML-KEM is later broken, X25519 still does.</li>
+				<li><strong>Concatenation order is fixed and authenticated.</strong> The
+				ordering, salts, and the rest of the transcript are bound in via the
+				TLS handshake hash, so an attacker can't trick one side into using a
+				different ordering or omitting a half.</li>
+			</ol>
+			<p>
+				Formal statement: the combined KEM is IND-CCA2-secure under a standard
+				model of the KDF as long as <em>at least one</em> of (X25519 DDH,
+				Module-LWE) holds. This is exactly the "belt and braces" guarantee — and
+				the reason production deployments are willing to pay the ~1.2 KB extra
+				per handshake.
+			</p>
+		</details>
 	`;
 
 	const btn = section.querySelector<HTMLButtonElement>('#hybrid-run')!;
@@ -935,37 +961,283 @@ function renderDeployments(): HTMLElement {
 	return section;
 }
 
-// ---------- 10. Why it matters -----------------------------------------------
+// ---------- 10. Shor's algorithm ---------------------------------------------
 
-function renderWhyItMatters(): HTMLElement {
+// Classical implementation of Shor's order-finding subroutine.  The
+// quantum part of Shor — finding the period of f(x) = a^x mod N — is
+// what a fault-tolerant quantum computer does in polynomial time.
+// Here we compute the period by brute force (feasible because N is tiny)
+// and then run the same classical post-processing Shor would: take
+// gcd(a^(r/2) ± 1, N) to recover non-trivial factors of N.
+function shorClassical(N: number, a: number): {
+	cycle: number[];
+	period: number;
+	successful: boolean;
+	failureReason?: string;
+	factors?: [number, number];
+	half?: number;
+} {
+	if (gcdInt(a, N) !== 1) {
+		return { cycle: [], period: 0, successful: false, failureReason: `gcd(${a}, ${N}) = ${gcdInt(a, N)} — already a factor, no Shor needed.` };
+	}
+	const cycle: number[] = [];
+	let cur = 1;
+	for (let i = 1; i <= N; i++) {
+		cur = (cur * a) % N;
+		cycle.push(cur);
+		if (cur === 1) {
+			const r = i;
+			if (r % 2 !== 0) {
+				return { cycle, period: r, successful: false, failureReason: `Period ${r} is odd — Shor retries with a different a.` };
+			}
+			const half = modPow(a, r / 2, N);
+			if (half === N - 1) {
+				return { cycle, period: r, successful: false, failureReason: `a^(r/2) = N − 1 — trivial case, Shor retries with a different a.`, half };
+			}
+			const f1 = gcdInt(half - 1, N);
+			const f2 = gcdInt(half + 1, N);
+			if (f1 > 1 && f1 < N && f2 > 1 && f2 < N && f1 * f2 === N) {
+				return { cycle, period: r, half, successful: true, factors: [f1, f2] };
+			}
+			return { cycle, period: r, half, successful: false, failureReason: `Recovered gcds (${f1}, ${f2}) are not a clean factorisation — try a different a.` };
+		}
+	}
+	return { cycle, period: 0, successful: false, failureReason: 'No period found within N — pick a smaller N or different a.' };
+}
+
+function gcdInt(a: number, b: number): number {
+	let x = Math.abs(a);
+	let y = Math.abs(b);
+	while (y !== 0) {
+		[x, y] = [y, x % y];
+	}
+	return x;
+}
+
+const SHOR_TARGETS = [15, 21, 33, 35, 39, 51, 55, 77, 85, 91];
+
+function renderShor(): HTMLElement {
 	const section = el('section', 'lab-section');
-	section.id = 'why';
-	section.setAttribute('aria-labelledby', 'why-heading');
-
-	const cards = WHY_IT_MATTERS.map(
-		(km) => `
-		<div class="panel-card">
-			<h3>${km.title}</h3>
-			${km.year ? `<p class="hero-metric-label">${km.year}</p>` : ''}
-			<p class="panel-copy">${km.body}</p>
-		</div>
-	`,
-	).join('');
+	section.id = 'shor';
+	section.setAttribute('aria-labelledby', 'shor-heading');
 
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
 				<p class="section-kicker">Section · 10</p>
-				<h2 id="why-heading">Why it matters</h2>
-				<p class="panel-copy">The migration story in four cards.</p>
+				<h2 id="shor-heading">Shor's algorithm — the threat</h2>
+				<p class="panel-copy">DH, ECDH, and X25519 all hide a secret as an exponent. Shor's algorithm (1994) finds that exponent in polynomial time on a fault-tolerant quantum computer — by reducing it to <em>period-finding</em>, a problem the quantum Fourier transform solves efficiently. Here is the classical post-processing on small numbers, so you can see what Shor would do <em>after</em> the quantum part.</p>
 			</div>
 		</div>
-		<div class="reuse-grid">${cards}</div>
+		<div class="kx-inputs" role="group" aria-label="Shor inputs">
+			<label>
+				<span>Composite <code>N</code> to factor</span>
+				<select id="shor-N">
+					${SHOR_TARGETS.map((n) => `<option value="${n}"${n === 15 ? ' selected' : ''}>${n}</option>`).join('')}
+				</select>
+			</label>
+			<label>
+				<span>Random base <code>a</code> (coprime to N)</span>
+				<input type="number" id="shor-a" min="2" value="2" />
+			</label>
+			<label class="kx-spans-both">
+				<button id="shor-random-a" class="tab-button" type="button">Pick a new random a</button>
+			</label>
+		</div>
+		<div id="shor-output" class="kx-output" aria-live="polite"></div>
+		<div class="panel-card shor-context">
+			<h3>What the quantum part actually does</h3>
+			<p class="panel-copy">
+				A classical computer can find the period <code>r</code> for tiny <code>N</code> by iterating <code>a, a², a³ …</code> until it sees 1 again — that's what you just did above. A quantum computer prepares a superposition over all <code>x</code>, applies <code>f(x) = aˣ mod N</code>, then quantum-Fourier-transforms the output register. Measuring gives a sample of the Fourier spectrum of <code>f</code>, which is sharply peaked at multiples of <code>1/r</code> — continued fractions on that sample recovers <code>r</code> in polynomial time. The same trick recovers the exponent in DH/ECDH/X25519 by finding the period of a closely-related function.
+			</p>
+			<p class="panel-copy">
+				<strong>Why Module-LWE survives.</strong> Shor's speed-up needs a hidden <em>periodic</em> structure. Lattice problems like Module-LWE don't have one — the secret is a short vector, not a hidden exponent, and the noise <code>e</code> destroys whatever Fourier structure a noise-free instance might have. No quantum algorithm is known to beat the best classical lattice algorithms by more than a Grover-style square-root factor.
+			</p>
+			<h3>Resource estimate (Gidney &amp; Ekerå, 2019)</h3>
+			<div class="table-shell" tabindex="0" role="region" aria-label="Quantum resource estimate to break RSA-2048 by Shor's algorithm">
+				<table class="math-table shor-resources">
+					<thead><tr><th>Target</th><th>Logical qubits</th><th>Physical qubits</th><th>Wall time</th></tr></thead>
+					<tbody>
+						<tr><td>RSA-2048</td><td class="mono-cell">≈ 4 100</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td></tr>
+						<tr><td>2048-bit DH</td><td class="mono-cell">≈ 4 100</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td></tr>
+						<tr><td>Curve25519 (ECDLP)</td><td class="mono-cell">≈ 2 330</td><td class="mono-cell">≈ 11 000 000</td><td class="mono-cell">≈ hours</td></tr>
+					</tbody>
+				</table>
+			</div>
+			<p class="kx-footnote">Today's best superconducting hardware is on the order of 1 000 noisy physical qubits. The gap is huge — but the curve of progress and the long lifetime of harvested traffic are exactly why production has already started migrating.</p>
+		</div>
 	`;
+
+	const nSel = section.querySelector<HTMLSelectElement>('#shor-N')!;
+	const aInput = section.querySelector<HTMLInputElement>('#shor-a')!;
+	const randomBtn = section.querySelector<HTMLButtonElement>('#shor-random-a')!;
+	const output = section.querySelector<HTMLElement>('#shor-output')!;
+
+	function rerun(): void {
+		const N = parseInt(nSel.value, 10);
+		let a = clampInt(aInput.value, 2, N - 1, 2);
+		const r = shorClassical(N, a);
+		output.innerHTML = renderShorResult(N, a, r);
+	}
+
+	function pickRandomA(): void {
+		const N = parseInt(nSel.value, 10);
+		// Pick a coprime to N for a clean run.
+		for (let attempt = 0; attempt < 100; attempt++) {
+			const candidate = 2 + Math.floor(Math.random() * (N - 3));
+			if (gcdInt(candidate, N) === 1) {
+				aInput.value = String(candidate);
+				rerun();
+				return;
+			}
+		}
+	}
+
+	nSel.addEventListener('change', rerun);
+	aInput.addEventListener('input', rerun);
+	randomBtn.addEventListener('click', pickRandomA);
+
+	rerun();
 	return section;
 }
 
-// ---------- 11. References + Glossary ---------------------------------------
+function renderShorResult(
+	N: number,
+	a: number,
+	r: ReturnType<typeof shorClassical>,
+): string {
+	const cycleHtml = r.cycle.length
+		? r.cycle
+				.map(
+					(v, i) =>
+						`<span class="shor-cycle-step${v === 1 && i === r.cycle.length - 1 ? ' shor-cycle-step--end' : ''}">${a}<sup>${i + 1}</sup> = ${v}</span>`,
+				)
+				.join('<span class="shor-cycle-arrow">→</span>')
+		: '';
+	if (!r.successful) {
+		return `
+			<div class="kx-side">
+				<p class="hero-metric-label">Trying ${a}ˣ mod ${N}</p>
+				<p class="mono-inline shor-cycle">${cycleHtml || '(no cycle)'}</p>
+				${r.period ? `<p class="mono-inline">Period r = <strong>${r.period}</strong></p>` : ''}
+				${r.half !== undefined ? `<p class="mono-inline">a<sup>r/2</sup> mod N = ${r.half}</p>` : ''}
+				<p class="scenario-status--invalid">✗ ${r.failureReason}</p>
+				<p class="kx-footnote">Shor's algorithm allows for some retries — about a constant fraction of choices of <code>a</code> yield a clean factorisation.</p>
+			</div>
+		`;
+	}
+	const [f1, f2] = r.factors!;
+	return `
+		<div class="kx-side">
+			<p class="hero-metric-label">Trying ${a}ˣ mod ${N}</p>
+			<p class="mono-inline shor-cycle">${cycleHtml}</p>
+			<p class="mono-inline">Period r = <strong>${r.period}</strong> (even ✓)</p>
+			<p class="mono-inline">a<sup>r/2</sup> mod N = ${a}<sup>${r.period / 2}</sup> mod ${N} = <strong>${r.half}</strong></p>
+			<p class="mono-inline">gcd(${r.half} − 1, ${N}) = <strong>${f1}</strong></p>
+			<p class="mono-inline">gcd(${r.half} + 1, ${N}) = <strong>${f2}</strong></p>
+			<p class="scenario-status--valid">✓ ${N} = ${f1} × ${f2}</p>
+		</div>
+	`;
+}
+
+// ---------- 11. Module-LWE ---------------------------------------------------
+
+// Tiny instance of the Module-LWE hard problem. With q = 11, n = 3, k = 3
+// the secret s and error e are short vectors, A is a public 3×3 matrix
+// over Z_q, and b = A·s + e mod q is published. Recovering s given (A, b)
+// is the (decisional) Module-LWE problem — believed hard for both
+// classical and quantum adversaries even at much larger parameters.
+function renderModuleLwe(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'mlwe';
+	section.setAttribute('aria-labelledby', 'mlwe-heading');
+
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Section · 11</p>
+				<h2 id="mlwe-heading">Module-LWE — the new hard problem</h2>
+				<p class="panel-copy">ML-KEM's security rests on a single conjecture: <em>given (A, b = A·s + e mod q) with A public, s and e short and secret, recovering s is hard</em>. Here it is at toy size so you can see the shape. Click "Resample" to get fresh values.</p>
+			</div>
+		</div>
+		<div class="kx-actions">
+			<button id="mlwe-resample" class="tab-button" type="button">Resample</button>
+		</div>
+		<div id="mlwe-output" class="kx-output" aria-live="polite"></div>
+		<div class="panel-card">
+			<h3>Why this is hard</h3>
+			<p class="panel-copy">
+				Without the noise <code>e</code>, the system <code>A·s = b mod q</code> is a linear-algebra problem and Gaussian elimination solves it in milliseconds. The noise destroys that — the equations are "almost satisfied" by many short vectors, and finding the one the encrypter chose reduces to lattice problems (shortest-vector, learning-with-errors) for which no efficient classical or quantum algorithm is known. ML-KEM picks <code>n = 256</code>, <code>k ∈ {2, 3, 4}</code>, and a carefully shaped distribution for <code>s</code> and <code>e</code> to land at Categories 1, 3, and 5 of NIST's PQC security floor.
+			</p>
+		</div>
+	`;
+
+	const output = section.querySelector<HTMLElement>('#mlwe-output')!;
+	const btn = section.querySelector<HTMLButtonElement>('#mlwe-resample')!;
+
+	function rerun(): void {
+		output.innerHTML = renderModuleLweInstance();
+	}
+	btn.addEventListener('click', rerun);
+	rerun();
+	return section;
+}
+
+function renderModuleLweInstance(): string {
+	const q = 11;
+	const n = 3;
+	const k = 3;
+	const A: number[][] = Array.from({ length: k }, () =>
+		Array.from({ length: n }, () => Math.floor(Math.random() * q)),
+	);
+	// Short secret and error from {-1, 0, 1} (centered binomial-ish).
+	const s = Array.from({ length: n }, () => Math.floor(Math.random() * 3) - 1);
+	const e = Array.from({ length: k }, () => Math.floor(Math.random() * 3) - 1);
+	function mod(x: number): number {
+		return ((x % q) + q) % q;
+	}
+	const b = A.map((row, i) => mod(row.reduce((acc, aij, j) => acc + aij * s[j]!, 0) + e[i]!));
+	function fmtSigned(v: number): string {
+		return v >= 0 ? `+${v}` : `${v}`;
+	}
+
+	function matrixHtml(label: string, m: number[][]): string {
+		const rows = m
+			.map((row) => `<tr>${row.map((v) => `<td class="mono-cell">${v}</td>`).join('')}</tr>`)
+			.join('');
+		return `
+			<div class="mlwe-matrix">
+				<p class="hero-metric-label">${label}</p>
+				<table class="mlwe-grid" aria-label="${label}"><tbody>${rows}</tbody></table>
+			</div>
+		`;
+	}
+	function vectorHtml(label: string, v: number[], signed = false): string {
+		const cells = v
+			.map((x) => `<td class="mono-cell">${signed ? fmtSigned(x) : x}</td>`)
+			.join('');
+		return `
+			<div class="mlwe-matrix">
+				<p class="hero-metric-label">${label}</p>
+				<table class="mlwe-grid" aria-label="${label}"><tbody><tr>${cells}</tr></tbody></table>
+			</div>
+		`;
+	}
+
+	return `
+		<div class="mlwe-grid-row">
+			${matrixHtml('Public A (k=' + k + ' × n=' + n + ')', A)}
+			${vectorHtml('Secret s (short)', s, true)}
+			${vectorHtml('Error e (short)', e, true)}
+			${vectorHtml('Public b = A·s + e mod ' + q, b)}
+		</div>
+		<p class="kx-footnote">
+			Public: <strong>A</strong>, <strong>b</strong>.  Secret: <strong>s</strong>, <strong>e</strong>.  Modulus q = ${q}.  In ML-KEM the same shape scales up to n = 256 with k ∈ {2, 3, 4}; the encryption uses additional polynomial-ring structure (NTT-friendly) for speed.  Brute force on the toy instance is fast; on the real one it is conjectured infeasible for both classical and quantum machines.
+		</p>
+	`;
+}
+
+// ---------- 12. References + Glossary ---------------------------------------
 
 function renderRefs(): HTMLElement {
 	const section = el('section', 'lab-section');
@@ -994,7 +1266,7 @@ function renderRefs(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 11</p>
+				<p class="section-kicker">Section · 12</p>
 				<h2 id="refs-heading">References &amp; glossary</h2>
 				<p class="panel-copy">Canonical citations for everything claimed in the demo, plus a short glossary of the terms used.</p>
 			</div>
@@ -1030,7 +1302,8 @@ const NAV_LINKS: NavLink[] = [
 	{ hash: 'sizes', label: 'Sizes' },
 	{ hash: 'history', label: 'History' },
 	{ hash: 'production', label: 'Production' },
-	{ hash: 'why', label: 'Why' },
+	{ hash: 'shor', label: 'Shor' },
+	{ hash: 'mlwe', label: 'M-LWE' },
 	{ hash: 'refs', label: 'References' },
 ];
 
@@ -1215,7 +1488,8 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderSizes());
 	shell.appendChild(renderHistory());
 	shell.appendChild(renderDeployments());
-	shell.appendChild(renderWhyItMatters());
+	shell.appendChild(renderShor());
+	shell.appendChild(renderModuleLwe());
 	shell.appendChild(renderRefs());
 	shell.appendChild(renderFooter());
 

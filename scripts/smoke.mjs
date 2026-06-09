@@ -91,6 +91,20 @@ async function run(label, deviceOpts) {
 	const mitmOut = await page.locator('#mitm-output').textContent();
 	assert(/Different secrets/.test(mitmOut ?? ''), 'MitM shows Alice and Bob have different secrets');
 
+	// Shor section — default N=15 + a=2 should factor cleanly
+	const shorOut = await page.locator('#shor-output').textContent();
+	assert(/15 = 3 × 5/.test(shorOut ?? ''), 'Shor classical factors 15 = 3 × 5');
+	const shorCycleSteps = await page.locator('.shor-cycle-step').count();
+	assert(shorCycleSteps >= 4, `Shor shows full cycle (got ${shorCycleSteps} steps)`);
+
+	// Module-LWE section
+	const mlweMatrices = await page.locator('.mlwe-matrix').count();
+	assert(mlweMatrices === 4, `Module-LWE shows A, s, e, b (got ${mlweMatrices})`);
+
+	// Hybrid security argument is reachable in the hybrid section
+	const hybridSec = await page.locator('.hybrid-security').count();
+	assert(hybridSec === 1, `hybrid security details present (got ${hybridSec})`);
+
 	// Discrete-log scaling table
 	await page.click('#dh-attack');
 	const scaleRows = await page.locator('.scale-row').count();
@@ -102,7 +116,7 @@ async function run(label, deviceOpts) {
 
 	// New 10/10 sections render
 	const navLinks = await page.locator('.section-nav-link').count();
-	assert(navLinks === 11, `section nav has 11 links (got ${navLinks})`);
+	assert(navLinks === 12, `section nav has 12 links (got ${navLinks})`);
 	const sizeRows = await page.locator('.size-row').count();
 	assert(sizeRows === 5, `sizes section has 5 rows (got ${sizeRows})`);
 	const histItems = await page.locator('.hist-item').count();
