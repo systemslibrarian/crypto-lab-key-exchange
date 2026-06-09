@@ -62,6 +62,36 @@ function copyChip(value: string, label = 'Copy'): string {
 	return `<button type="button" class="copy-chip" data-copy="${safe}" aria-label="Copy ${label} to clipboard">📋 ${label}</button>`;
 }
 
+// Threat-model chip strip. Every interactive section gets an explicit
+// statement of which adversary it does (and does not) protect against.
+type Threat = 'passive' | 'active' | 'quantum' | 'migration';
+const THREAT_LABEL: Record<Threat, string> = {
+	passive: 'Passive eavesdropper',
+	active: 'Active MitM',
+	quantum: 'Large quantum computer',
+	migration: 'Harvest-now-decrypt-later',
+};
+function threatBadges(protects: Threat[], doesNot: Threat[]): string {
+	const yes = protects
+		.map((t) => `<span class="threat-chip threat-chip--yes">✓ vs ${THREAT_LABEL[t]}</span>`)
+		.join('');
+	const no = doesNot
+		.map((t) => `<span class="threat-chip threat-chip--no">✗ vs ${THREAT_LABEL[t]}</span>`)
+		.join('');
+	return `<div class="threat-strip" role="note" aria-label="Threat model for this section">${yes}${no}</div>`;
+}
+
+// Standardised "this section uses toy parameters" warning so the caveat
+// is visible in every interactive panel, not just buried in prose.
+function toyBanner(detail: string): string {
+	return `
+		<div class="toy-banner" role="note">
+			<span class="toy-banner-tag">Toy parameters</span>
+			<span class="toy-banner-body">${detail}</span>
+		</div>
+	`;
+}
+
 function wireCopyButtons(root: HTMLElement): void {
 	root.addEventListener('click', async (e) => {
 		const target = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('.copy-chip');
@@ -237,6 +267,8 @@ function renderDhPlayground(): HTMLElement {
 				<p class="panel-copy">Pick a small prime <code>p</code>, a generator <code>g</code>, and Alice’s and Bob’s secret exponents. Every step of the arithmetic is shown — and the discrete-log attack actually runs.</p>
 			</div>
 		</div>
+		${threatBadges(['passive'], ['active', 'quantum'])}
+		${toyBanner('Real DH uses 2048–4096-bit primes; this demo uses ≤ 4-digit primes so the math fits on screen and the break runs in milliseconds.')}
 		<div class="kx-inputs" role="group" aria-label="Diffie–Hellman inputs">
 			<label>
 				<span>Prime <code>p</code></span>
@@ -419,6 +451,7 @@ function renderMitm(): HTMLElement {
 				<p class="panel-copy">DH protects against a passive eavesdropper who only watches the wire. It gives <em>zero</em> protection against an active attacker who can intercept and replace messages. Watch Eve sit in the middle and trick both sides into sharing a secret with <em>her</em>.</p>
 			</div>
 		</div>
+		${threatBadges([], ['active'])}
 		<div class="kx-inputs" role="group" aria-label="MitM inputs">
 			<label>
 				<span>Prime <code>p</code></span>
@@ -531,6 +564,8 @@ function renderEcdhPlayground(): HTMLElement {
 				<p class="panel-copy">The same Diffie–Hellman idea, on an elliptic curve. We use a tiny teaching curve so every point is visible.</p>
 			</div>
 		</div>
+		${threatBadges(['passive'], ['active', 'quantum'])}
+		${toyBanner('y² = x³ + 2x + 2 (mod 17) is a 4-bit teaching curve with 19 points. Production ECDH uses Curve25519 (256-bit prime, ~2²⁵² points).')}
 		<p class="kx-curve">
 			<span class="kx-curve-part">Curve: <code>y² = x³ + ${c.a}x + ${c.b} (mod ${c.p})</code></span>
 			<span class="kx-curve-part">generator <code>G = ${pointToString(c.G)}</code></span>
@@ -702,6 +737,8 @@ function renderKemSection(state: SharedSecrets): HTMLElement {
 				<p class="panel-copy">DH and ECDH have <em>both</em> sides exponentiate to a shared value. A KEM has Bob <em>encapsulate</em> a fresh secret to Alice’s public key, and Alice <em>decapsulates</em>. Different shape, same end state.</p>
 			</div>
 		</div>
+		${threatBadges(['passive', 'quantum'], ['active'])}
+		${toyBanner('This is a flow model — random opaque bytes, not real Module-LWE. The shape (encapsulate / decapsulate) and the API are right; the cryptography is not. See § Module-LWE for the actual hard problem.')}
 		<div class="reuse-grid">
 			<div class="panel-card">
 				<h3>DH / ECDH</h3>
@@ -785,6 +822,7 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 				<p class="panel-copy">Take the DH shared secret and the ML-KEM secret, hash them together, and use the result as the session key. The channel survives unless <em>both</em> halves break.</p>
 			</div>
 		</div>
+		${threatBadges(['passive', 'quantum', 'migration'], ['active'])}
 		<div class="kx-actions">
 			<button id="hybrid-run" class="tab-button" type="button">Combine DH + KEM</button>
 		</div>
@@ -862,6 +900,130 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 		void run();
 	});
 
+	return section;
+}
+
+// ---------- Production decision card ----------------------------------------
+
+// The "if I'm building today, what should I use?" answer. Placed
+// up-front so engineers and architects can find it without scrolling
+// through the teaching content first.
+function renderDecisionCard(): HTMLElement {
+	const card = el('section', 'lab-section decision-card');
+	card.id = 'decision';
+	card.setAttribute('aria-labelledby', 'decision-heading');
+	card.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">If you are building today</p>
+				<h2 id="decision-heading">Production decision card</h2>
+			</div>
+		</div>
+		<div class="decision-grid">
+			<div class="decision-row">
+				<p class="hero-metric-label">Classical-only environment</p>
+				<p class="panel-copy"><strong>Use X25519.</strong> Default in TLS 1.3, libsodium, modern SSH. Constant-time, 32-byte keys, no parameter selection.</p>
+			</div>
+			<div class="decision-row">
+				<p class="hero-metric-label">Need post-quantum confidentiality</p>
+				<p class="panel-copy"><strong>Use ML-KEM (FIPS 203).</strong> The first standardised post-quantum KEM. ML-KEM-768 is the common middle-ground parameter set (NIST Cat 3).</p>
+			</div>
+			<div class="decision-row">
+				<p class="hero-metric-label">Migrating today</p>
+				<p class="panel-copy"><strong>Use hybrid X25519+ML-KEM-768.</strong> What Cloudflare, Chrome, Apple, Signal, and AWS ship today. Secure if either half holds.</p>
+			</div>
+			<div class="decision-row decision-row--warn">
+				<p class="hero-metric-label">In every case</p>
+				<p class="panel-copy"><strong>Use a vetted library.</strong> BoringSSL, OpenSSL, libsodium, liboqs, BouncyCastle, RustCrypto. Never roll your own — this lab is for teaching, not deployment.</p>
+			</div>
+		</div>
+	`;
+	return card;
+}
+
+// ---------- Synthesis card --------------------------------------------------
+
+// "If you remember only three things." Placed just before References so
+// the page has a clean closing summary that survives skimming.
+function renderSynthesis(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'synthesis';
+	section.setAttribute('aria-labelledby', 'synthesis-heading');
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Closing</p>
+				<h2 id="synthesis-heading">If you remember three things</h2>
+			</div>
+		</div>
+		<ol class="synthesis-list">
+			<li>
+				<h3>DH, ECDH, and X25519 are the same idea in stronger groups.</h3>
+				<p class="panel-copy">All three rely on the discrete-log problem. Each move bought shorter keys, faster handshakes, or cleaner engineering — never a different security story. Shor’s algorithm breaks all three.</p>
+			</li>
+			<li>
+				<h3>ML-KEM is a genuinely different mechanism.</h3>
+				<p class="panel-copy">A Key Encapsulation Mechanism over polynomial rings, secured by Module-LWE. Shor doesn’t touch it — its hardness rests on lattice problems, not on hidden periodic structure.</p>
+			</li>
+			<li>
+				<h3>Hybrid is the migration bridge, not a destination.</h3>
+				<p class="panel-copy">X25519MLKEM768 in TLS 1.3 is what production ships today. Secure if either half holds; once we are confident in ML-KEM and the quantum threat is acute, the classical half may be retired.</p>
+			</li>
+		</ol>
+	`;
+	return section;
+}
+
+// ---------- Side-by-side comparison (all 5 generations at once) -------------
+
+// The five generations have their own tablist (§ 1) — but for compare-
+// across questions you really want one screen with everything visible.
+// This is that screen.
+function renderCompare(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'compare';
+	section.setAttribute('aria-labelledby', 'compare-heading');
+
+	const rows = [
+		{ field: 'Year', get: (g: Generation) => String(g.year) },
+		{ field: 'Mechanism', get: (g: Generation) => g.mechanic },
+		{ field: 'Hard problem', get: (g: Generation) => g.hardProblem },
+		{ field: 'Typical key size', get: (g: Generation) => g.keySize },
+		{
+			field: 'Post-quantum?',
+			get: (g: Generation) =>
+				g.pqSafe
+					? '<span class="gen-pill-chip chip-safe">PQ-safe</span>'
+					: '<span class="gen-pill-chip chip-broken">Broken by Shor</span>',
+		},
+	];
+
+	const header = `<tr><th scope="col">&nbsp;</th>${GENERATIONS.map(
+		(g) => `<th scope="col">${g.name}<br><span class="compare-year">${g.year}</span></th>`,
+	).join('')}</tr>`;
+
+	const body = rows
+		.map(
+			(r) =>
+				`<tr><th scope="row">${r.field}</th>${GENERATIONS.map((g) => `<td>${r.get(g)}</td>`).join('')}</tr>`,
+		)
+		.join('');
+
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Compare across</p>
+				<h2 id="compare-heading">All five at once</h2>
+				<p class="panel-copy">The five-generation tablist lets you drill into one; this table puts every generation on the same screen so the contrast — mechanism, hard problem, size, quantum status — is unmissable.</p>
+			</div>
+		</div>
+		<div class="table-shell" tabindex="0" role="region" aria-label="All five generations compared">
+			<table class="math-table compare-table">
+				<thead>${header}</thead>
+				<tbody>${body}</tbody>
+			</table>
+		</div>
+	`;
 	return section;
 }
 
@@ -1293,17 +1455,20 @@ interface NavLink {
 }
 
 const NAV_LINKS: NavLink[] = [
+	{ hash: 'decision', label: 'Decide' },
 	{ hash: 'generations', label: 'Generations' },
 	{ hash: 'dh', label: 'DH' },
 	{ hash: 'mitm', label: 'MitM' },
 	{ hash: 'ecdh', label: 'ECDH' },
 	{ hash: 'kem', label: 'KEM' },
 	{ hash: 'hybrid', label: 'Hybrid' },
+	{ hash: 'compare', label: 'Compare' },
 	{ hash: 'sizes', label: 'Sizes' },
 	{ hash: 'history', label: 'History' },
 	{ hash: 'production', label: 'Production' },
 	{ hash: 'shor', label: 'Shor' },
 	{ hash: 'mlwe', label: 'M-LWE' },
+	{ hash: 'synthesis', label: 'Synthesis' },
 	{ hash: 'refs', label: 'References' },
 ];
 
@@ -1468,6 +1633,7 @@ export function mountApp(root: HTMLDivElement): void {
 
 	shell.appendChild(renderHero());
 	shell.appendChild(renderSectionNav());
+	shell.appendChild(renderDecisionCard());
 	shell.appendChild(renderTimeline());
 	const dhSection = renderDhPlayground();
 	shell.appendChild(dhSection);
@@ -1485,11 +1651,13 @@ export function mountApp(root: HTMLDivElement): void {
 			return r.sharedFromAlice;
 		}),
 	);
+	shell.appendChild(renderCompare());
 	shell.appendChild(renderSizes());
 	shell.appendChild(renderHistory());
 	shell.appendChild(renderDeployments());
 	shell.appendChild(renderShor());
 	shell.appendChild(renderModuleLwe());
+	shell.appendChild(renderSynthesis());
 	shell.appendChild(renderRefs());
 	shell.appendChild(renderFooter());
 

@@ -16,7 +16,7 @@ An interactive walk through five generations of key exchange: Diffie–Hellman (
 
 [**https://systemslibrarian.github.io/crypto-lab-key-exchange/**](https://systemslibrarian.github.io/crypto-lab-key-exchange/)
 
-The page walks through five sections: a clickable timeline of the five generations with a PQ-safe / quantum-broken chip per row; a live Diffie–Hellman playground with inputs for the prime `p`, generator `g`, and Alice/Bob secret exponents `a` and `b`, showing the full arithmetic `A = g^a mod p`, `B = g^b mod p`, and both sides recomputing the shared value; a "Break it" button that runs `discreteLogAttack(g, A, p)` and recovers Alice's secret exponent in front of you; a live ECDH playground on `y² = x³ + 2x + 2 (mod 17)` with generator `G = (5, 1)` and order 19, showing the points `a·G`, `b·G`, and the agreement; an ML-KEM flow model (encapsulate-decapsulate with random opaque bytes — clearly labelled as a flow model, not real Module-LWE); and the hybrid combine that hashes the DH shared secret with the KEM secret into a 256-bit session key.
+The page is one long scrollable lesson with a sticky scroll-spy nav at the top. Inside: a production decision card, the five-generation tablist, live DH and MitM playgrounds, ECDH with a plot of every point on the demo curve, the KEM flow model, the hybrid combine, an all-five comparison table, sizes and history sections, a roster of real production deployments, interactive Shor classical order-finding, a Module-LWE visualization, a closing "remember three things" synthesis, and a references-and-glossary panel. Number keys `1`–`9` and `0` jump between sections; `?` opens the keyboard-shortcut help. Every interactive section carries an explicit threat-model chip strip (what it protects against, what it does not) and a visible "toy parameters" warning.
 
 ## How to Run Locally
 
@@ -24,12 +24,59 @@ The page walks through five sections: a clickable timeline of the five generatio
 git clone https://github.com/systemslibrarian/crypto-lab-key-exchange.git
 cd crypto-lab-key-exchange
 npm install
-npm run dev      # local dev server with HMR
-npm run build    # type-check + production build to dist/
-npm run preview  # serve the built dist/ locally
+npm run dev        # local dev server with HMR
+npm run build      # type-check + production build to dist/
+npm run preview    # serve the built dist/ locally
+npm test           # deterministic engine unit tests
+npm run smoke      # Playwright smoke (needs `npm run preview` running)
+npm run axe        # axe-core WCAG 2.1 A/AA audit (needs preview running)
+npm run verify     # build + tests (full local CI pass)
 ```
 
 No environment variables, no API keys, no servers. Everything runs client-side in the browser.
+
+## How to Teach From It
+
+If you have **5 minutes** — the time it takes a manager to skim:
+1. Production decision card (top of page) — "if I'm building today, use…"
+2. The five-generation tablist — one screen, every mechanism named
+3. The synthesis card near the bottom — "remember three things"
+
+If you have **15 minutes** — a brown-bag walk-through:
+1. Production decision card
+2. Five-generation tablist (click each chip, read the mechanic and threat)
+3. DH playground — change `a`, watch both ends agree
+4. "Break it" — recover Alice's exponent and read the scaling table
+5. MitM panel — see Alice and Bob end with mismatched secrets
+6. KEM section — note the *shape* change vs DH
+7. Hybrid combine — run it once, expand "Why is this secure if either half holds?"
+8. Synthesis card
+
+If you have **30 minutes** — a class or onboarding session:
+1. Full top-to-bottom in nav order
+2. Pause on ECDH for the point plot and the Curve25519 contrast table
+3. Pause on Shor for the order-finding cycle and resource estimates
+4. Pause on Module-LWE for the `b = A·s + e` matrix layout
+5. End on References & glossary — every claim has a stable link
+
+## Validation contract
+
+What is tested, what is intentionally not tested, and how to run each:
+
+| Test | Command | What it covers |
+| --- | --- | --- |
+| Engine unit tests | `npm test` | `modPow`, `modInverse`, `diffieHellman`, `discreteLogAttack`, `isOnCurve`, `ecAdd`, `ecMul` (incl. agreement with iterated addition and `n·G = ∞`), `ecdh` agreement for every scalar pair on the demo curve, `pointToString`, `mlkemEncapsulateDemo` shape, `hybridCombine` determinism and length. Deterministic. |
+| Browser smoke | `npm run smoke` | Playwright/Chromium on three viewports (desktop 1280, iPhone 12, narrow 360×740). Exercises every interactive control end-to-end, the URL-hash deep-links, the keyboard shortcuts, the copy-to-clipboard chips, the EC curve plot, the MitM panel, the Shor cycle, and the Module-LWE matrices. Asserts no console errors and no horizontal overflow. |
+| Accessibility audit | `npm run axe` | axe-core WCAG 2.1 A/AA against six configurations (3 viewport widths × 2 themes). Currently zero violations. |
+| Full local CI pass | `npm run verify` | Runs `build` + `test` and then expects you to run `smoke` / `axe` against a `preview` server. (CI runs all of them automatically on every push and PR.) |
+
+What is **not** tested, by design:
+- The visual appearance of the EC curve plot (only the count of finite points and the highlight classification is asserted).
+- The exact text of every long-form explanation — that would freeze the prose against intentional editing.
+- Real-network behaviour. The page is fully static and client-side.
+- Real post-quantum cryptography. ML-KEM in the engine is a flow model (random opaque bytes, labelled as such throughout); the real cryptography belongs in a vetted library.
+
+CI runs `build + test + smoke + axe` on every push to `main` and on every PR (`.github/workflows/ci.yml`). The deploy workflow (`.github/workflows/deploy.yml`) only fires on push to `main`.
 
 ## Part of the Crypto-Lab Suite
 

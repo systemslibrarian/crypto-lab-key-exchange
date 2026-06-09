@@ -114,9 +114,20 @@ async function run(label, deviceOpts) {
 	const contrastRows = await page.locator('.curve-contrast tbody tr').count();
 	assert(contrastRows === 7, `Curve25519 contrast has 7 rows (got ${contrastRows})`);
 
-	// New 10/10 sections render
+	// Decision card + synthesis + compare table + trust signals
+	const decisionRows = await page.locator('.decision-row').count();
+	assert(decisionRows === 4, `decision card has 4 rows (got ${decisionRows})`);
+	const synthesisItems = await page.locator('.synthesis-list li').count();
+	assert(synthesisItems === 3, `synthesis has 3 items (got ${synthesisItems})`);
+	const compareCols = await page.locator('.compare-table thead th').count();
+	assert(compareCols === 6, `compare table has 6 columns (got ${compareCols})`);
+	const threatStrips = await page.locator('.threat-strip').count();
+	assert(threatStrips >= 4, `threat-model chips on interactive sections (got ${threatStrips})`);
+	const toyBanners = await page.locator('.toy-banner').count();
+	assert(toyBanners >= 2, `toy-parameter warning banners present (got ${toyBanners})`);
+
 	const navLinks = await page.locator('.section-nav-link').count();
-	assert(navLinks === 12, `section nav has 12 links (got ${navLinks})`);
+	assert(navLinks === 15, `section nav has 15 links (got ${navLinks})`);
 	const sizeRows = await page.locator('.size-row').count();
 	assert(sizeRows === 5, `sizes section has 5 rows (got ${sizeRows})`);
 	const histItems = await page.locator('.hist-item').count();
@@ -136,12 +147,12 @@ async function run(label, deviceOpts) {
 	const copyChips = await page.locator('.copy-chip').count();
 	assert(copyChips >= 3, `copy chips on key outputs (got ${copyChips})`);
 
-	// Keyboard shortcuts: pressing "5" jumps to KEM section (5th nav link)
+	// Keyboard shortcuts: pressing "5" jumps to the 5th nav link (ECDH).
 	await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
 	await page.keyboard.press('5');
 	await page.waitForTimeout(400);
 	const hashAfter5 = await page.evaluate(() => window.location.hash);
-	assert(hashAfter5 === '#kem', `key '5' jumps to KEM (hash=${hashAfter5})`);
+	assert(hashAfter5 === '#ecdh', `key '5' jumps to ECDH (hash=${hashAfter5})`);
 
 	// "?" opens help dialog
 	await page.keyboard.press('?');

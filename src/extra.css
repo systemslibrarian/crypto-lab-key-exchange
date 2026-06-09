@@ -840,6 +840,169 @@
   background: rgba(61, 217, 196, 0.18);
 }
 
+/* Threat-model chip strip */
+.threat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.threat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.threat-chip--yes {
+  background: rgba(19, 111, 99, 0.18);
+  color: var(--accent-4);
+}
+
+[data-theme="dark"] .threat-chip--yes {
+  background: rgba(61, 217, 196, 0.2);
+}
+
+.threat-chip--no {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  border: 1px solid var(--warning-border);
+}
+
+/* "Toy parameters" warning banner */
+.toy-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--warning-border);
+  border-radius: 14px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.toy-banner-tag {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--warning-fg);
+  color: var(--panel-strong);
+}
+
+/* Production decision card */
+.decision-card {
+  border-color: var(--accent);
+}
+
+.decision-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.decision-row {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-strong);
+}
+
+.decision-row--warn {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  grid-column: 1 / -1;
+}
+
+.decision-row--warn .hero-metric-label {
+  color: var(--warning-fg);
+}
+
+/* All-5 comparison table */
+.compare-table {
+  min-width: 720px;
+}
+
+.compare-table th[scope='col'] {
+  background: rgba(11, 127, 171, 0.08);
+}
+
+.compare-table th[scope='row'] {
+  background: var(--panel-strong);
+  color: var(--ink-strong);
+  text-align: left;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+
+.compare-year {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+[data-theme="dark"] .compare-table th[scope='col'] {
+  background: rgba(77, 195, 247, 0.08);
+}
+
+/* Synthesis "remember three things" cards */
+.synthesis-list {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+  counter-reset: synthesis;
+}
+
+.synthesis-list li {
+  position: relative;
+  padding: 18px 18px 18px 64px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel-strong);
+  counter-increment: synthesis;
+}
+
+.synthesis-list li::before {
+  content: counter(synthesis);
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--mono-block-bg);
+  color: var(--accent-3);
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.synthesis-list h3 {
+  margin: 0 0 6px;
+  color: var(--ink-strong);
+  font-size: 1.05rem;
+}
+
 /* Shor explainer */
 .shor-context {
   margin-top: 22px;
@@ -1066,6 +1229,10 @@ code {
   }
 
   .mlwe-grid-row {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-grid {
     grid-template-columns: 1fr;
   }
 }

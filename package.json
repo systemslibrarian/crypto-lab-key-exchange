@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types --no-warnings --test scripts/engine.test.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "axe": "node scripts/axe.mjs",
+    "verify": "npm run build && npm test && npm run smoke && npm run axe"
   },
   "devDependencies": {
     "typescript": "~5.6.3",
