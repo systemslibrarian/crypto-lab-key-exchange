@@ -94,15 +94,20 @@ function renderTimeline(): HTMLElement {
 	list.setAttribute('role', 'tablist');
 	list.setAttribute('aria-label', 'Generations of key exchange');
 
+	const panelId = 'gen-detail-panel';
 	const detail = el('div', 'gen-detail');
+	detail.id = panelId;
 	detail.setAttribute('role', 'tabpanel');
 	detail.tabIndex = 0;
 
 	const buttons: HTMLButtonElement[] = GENERATIONS.map((gen, idx) => {
 		const btn = el('button', 'gen-pill');
 		btn.type = 'button';
+		btn.id = `gen-tab-${gen.id}`;
 		btn.setAttribute('role', 'tab');
 		btn.setAttribute('aria-selected', 'false');
+		btn.setAttribute('aria-controls', panelId);
+		btn.tabIndex = -1;
 		btn.dataset.id = gen.id;
 		btn.innerHTML = `
 			<span class="gen-pill-year">${gen.year}</span>
@@ -110,6 +115,19 @@ function renderTimeline(): HTMLElement {
 			<span class="gen-pill-chip ${gen.pqSafe ? 'chip-safe' : 'chip-broken'}">${gen.pqSafe ? 'PQ-safe' : 'Quantum-broken'}</span>
 		`;
 		btn.addEventListener('click', () => select(idx));
+		btn.addEventListener('keydown', (e: KeyboardEvent) => {
+			const last = buttons.length - 1;
+			let next = -1;
+			if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = idx === last ? 0 : idx + 1;
+			else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = idx === 0 ? last : idx - 1;
+			else if (e.key === 'Home') next = 0;
+			else if (e.key === 'End') next = last;
+			if (next >= 0) {
+				e.preventDefault();
+				select(next);
+				buttons[next]!.focus();
+			}
+		});
 		return btn;
 	});
 
@@ -122,9 +140,11 @@ function renderTimeline(): HTMLElement {
 			const active = i === idx;
 			b.classList.toggle('is-active', active);
 			b.setAttribute('aria-selected', String(active));
+			b.tabIndex = active ? 0 : -1;
 		});
 		const gen = GENERATIONS[idx]!;
 		detail.innerHTML = renderGenerationDetail(gen);
+		detail.setAttribute('aria-labelledby', `gen-tab-${gen.id}`);
 	}
 
 	select(0);
@@ -283,7 +303,11 @@ function renderEcdhPlayground(): HTMLElement {
 				<p class="panel-copy">The same Diffie–Hellman idea, on an elliptic curve. We use a tiny teaching curve so every point is visible.</p>
 			</div>
 		</div>
-		<p class="kx-curve">Curve: <code>y² = x³ + ${c.a}x + ${c.b} (mod ${c.p})</code> &nbsp;·&nbsp; generator <code>G = ${pointToString(c.G)}</code> &nbsp;·&nbsp; order <code>n = ${c.n}</code></p>
+		<p class="kx-curve">
+			<span class="kx-curve-part">Curve: <code>y² = x³ + ${c.a}x + ${c.b} (mod ${c.p})</code></span>
+			<span class="kx-curve-part">generator <code>G = ${pointToString(c.G)}</code></span>
+			<span class="kx-curve-part">order <code>n = ${c.n}</code></span>
+		</p>
 		<div class="kx-inputs" role="group" aria-label="ECDH inputs">
 			<label>
 				<span>Alice scalar <code>a</code></span>
@@ -377,6 +401,8 @@ function renderKemSection(state: SharedSecrets): HTMLElement {
 
 	async function run(): Promise<void> {
 		btn.disabled = true;
+		btn.setAttribute('aria-busy', 'true');
+		output.setAttribute('aria-busy', 'true');
 		try {
 			const r = await mlkemEncapsulateDemo();
 			state.kem = r.aliceSecret;
@@ -386,6 +412,8 @@ function renderKemSection(state: SharedSecrets): HTMLElement {
 			output.innerHTML = `<p class="scenario-status--invalid">Encapsulation failed: ${(err as Error).message}</p>`;
 		} finally {
 			btn.disabled = false;
+			btn.removeAttribute('aria-busy');
+			output.removeAttribute('aria-busy');
 		}
 	}
 
@@ -446,6 +474,8 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 
 	async function run(): Promise<void> {
 		btn.disabled = true;
+		btn.setAttribute('aria-busy', 'true');
+		output.setAttribute('aria-busy', 'true');
 		try {
 			const dh = getDh();
 			const kem = state.kem;
@@ -470,6 +500,8 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 			output.innerHTML = `<p class="scenario-status--invalid">Combine failed: ${(err as Error).message}</p>`;
 		} finally {
 			btn.disabled = false;
+			btn.removeAttribute('aria-busy');
+			output.removeAttribute('aria-busy');
 		}
 	}
 

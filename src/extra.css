@@ -43,6 +43,17 @@
   border-color: transparent;
 }
 
+.gen-pill.is-active .chip-safe {
+  background: rgba(61, 217, 196, 0.22);
+  color: var(--accent-3);
+}
+
+.gen-pill.is-active .chip-broken {
+  background: rgba(240, 200, 90, 0.18);
+  color: var(--accent-3);
+  border-color: rgba(240, 200, 90, 0.4);
+}
+
 .gen-pill-year {
   font-family: var(--mono);
   font-size: 0.82rem;
@@ -67,13 +78,20 @@
 }
 
 .chip-safe {
-  background: rgba(19, 111, 99, 0.12);
+  background: rgba(19, 111, 99, 0.18);
   color: var(--accent-4);
+  font-weight: 700;
 }
 
 .chip-broken {
   background: var(--warning-bg);
   color: var(--warning-fg);
+  border: 1px solid var(--warning-border);
+  font-weight: 700;
+}
+
+[data-theme="dark"] .chip-safe {
+  background: rgba(61, 217, 196, 0.18);
 }
 
 .gen-detail {
@@ -183,6 +201,15 @@
   font-family: var(--mono);
   font-size: 0.92rem;
   color: var(--ink-strong);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+.kx-curve-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .kx-curve code {
@@ -260,6 +287,11 @@ code {
   background: rgba(77, 195, 247, 0.12);
 }
 
+.mono-inline {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 900px) {
   .kx-inputs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -276,5 +308,25 @@ code {
 
   .gen-dl dt {
     margin-top: 6px;
+  }
+}
+
+@media (max-width: 520px) {
+  .kx-inputs {
+    grid-template-columns: 1fr;
+  }
+
+  .gen-rail {
+    gap: 8px;
+  }
+
+  .gen-pill {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .gen-detail-head {
+    flex-direction: column;
   }
 }
