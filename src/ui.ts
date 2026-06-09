@@ -11,13 +11,25 @@ import {
 	discreteLogAttack,
 	ecdh,
 	hybridCombine,
+	isOnCurve,
 	mlkemEncapsulateDemo,
 	pointToString,
+	type Curve,
 	type DhResult,
+	type ECPoint,
 	type EcdhResult,
 	type KemResult,
 } from './engine.ts';
-import { GENERATIONS, WHY_IT_MATTERS, type Generation } from './data.ts';
+import {
+	DEPLOYMENTS,
+	GENERATIONS,
+	GLOSSARY,
+	HISTORY,
+	REFERENCES,
+	SIZES,
+	WHY_IT_MATTERS,
+	type Generation,
+} from './data.ts';
 
 function el<K extends keyof HTMLElementTagNameMap>(
 	tag: K,
@@ -318,18 +330,32 @@ function renderEcdhPlayground(): HTMLElement {
 				<input type="number" id="ec-b" min="1" max="${c.n - 1}" value="9" />
 			</label>
 		</div>
-		<div id="ec-output" class="kx-output" aria-live="polite"></div>
+		<div class="ec-grid">
+			<div id="ec-output" class="kx-output" aria-live="polite"></div>
+			<div class="ec-plot-wrap">
+				<div id="ec-plot" role="img" aria-label="Plot of all 18 points on the demo curve plus the point at infinity, with G, a·G, b·G, and the shared point highlighted"></div>
+				<ul class="ec-legend" aria-label="Point legend">
+					<li><span class="ec-dot ec-dot--curve"></span>Other curve points</li>
+					<li><span class="ec-dot ec-dot--g"></span>G = (5, 1)</li>
+					<li><span class="ec-dot ec-dot--a"></span>A = a·G</li>
+					<li><span class="ec-dot ec-dot--b"></span>B = b·G</li>
+					<li><span class="ec-dot ec-dot--shared"></span>shared = a·B = b·A</li>
+				</ul>
+			</div>
+		</div>
 	`;
 
 	const aInput = section.querySelector<HTMLInputElement>('#ec-a')!;
 	const bInput = section.querySelector<HTMLInputElement>('#ec-b')!;
 	const output = section.querySelector<HTMLElement>('#ec-output')!;
+	const plot = section.querySelector<HTMLElement>('#ec-plot')!;
 
 	function rerun(): void {
 		const a = clampInt(aInput.value, 1, c.n - 1, 3);
 		const b = clampInt(bInput.value, 1, c.n - 1, 9);
 		const r = ecdh(c, a, b);
 		output.innerHTML = renderEcdhResult(r);
+		plot.innerHTML = renderCurvePlot(c, r);
 	}
 
 	[aInput, bInput].forEach((i) => i.addEventListener('input', rerun));
@@ -337,6 +363,71 @@ function renderEcdhPlayground(): HTMLElement {
 	rerun();
 	return section;
 }
+
+// All (x, y) with 0 ≤ x, y < p satisfying the curve equation. With p=17
+// this yields 18 finite points plus the point at infinity — small enough
+// to enumerate and plot.
+function enumerateCurvePoints(curve: Curve): ECPoint[] {
+	const points: ECPoint[] = [];
+	for (let x = 0; x < curve.p; x++) {
+		for (let y = 0; y < curve.p; y++) {
+			if (isOnCurve({ x, y }, curve)) points.push({ x, y });
+		}
+	}
+	return points;
+}
+
+function renderCurvePlot(curve: Curve, r: EcdhResult): string {
+	const points = enumerateCurvePoints(curve);
+	const W = 320;
+	const H = 320;
+	const pad = 28;
+	const span = curve.p - 1;
+	const sx = (x: number) => pad + (x / span) * (W - 2 * pad);
+	const sy = (y: number) => H - pad - (y / span) * (H - 2 * pad);
+
+	function classify(pt: ECPoint): string {
+		if (pt.x === curve.G.x && pt.y === curve.G.y) return 'ec-dot--g';
+		if (!r.A.infinity && pt.x === r.A.x && pt.y === r.A.y) return 'ec-dot--a';
+		if (!r.B.infinity && pt.x === r.B.x && pt.y === r.B.y) return 'ec-dot--b';
+		if (!r.sharedFromAlice.infinity && pt.x === r.sharedFromAlice.x && pt.y === r.sharedFromAlice.y)
+			return 'ec-dot--shared';
+		return 'ec-dot--curve';
+	}
+
+	const axes = `
+		<line class="ec-axis" x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" />
+		<line class="ec-axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${H - pad}" />
+		<text class="ec-axis-label" x="${W - pad + 6}" y="${H - pad + 4}">x</text>
+		<text class="ec-axis-label" x="${pad - 6}" y="${pad - 6}" text-anchor="end">y</text>
+		<text class="ec-axis-label" x="${pad - 4}" y="${H - pad + 14}" text-anchor="end">0</text>
+		<text class="ec-axis-label" x="${W - pad}" y="${H - pad + 14}" text-anchor="middle">${span}</text>
+		<text class="ec-axis-label" x="${pad - 4}" y="${pad + 4}" text-anchor="end">${span}</text>
+	`;
+
+	const dots = points
+		.map((pt) => {
+			const cls = classify(pt);
+			const radius = cls === 'ec-dot--curve' ? 4 : 7;
+			return `<circle class="ec-svg-dot ${cls}" cx="${sx(pt.x)}" cy="${sy(pt.y)}" r="${radius}"><title>(${pt.x}, ${pt.y})</title></circle>`;
+		})
+		.join('');
+
+	// Optional infinity marker tucked in the top-right corner.
+	const infinityMarker = `
+		<text class="ec-infty" x="${W - pad + 4}" y="${pad - 8}" text-anchor="end">∞</text>
+	`;
+
+	return `
+		<svg viewBox="0 0 ${W} ${H}" width="100%" role="presentation" focusable="false">
+			${axes}
+			${dots}
+			${infinityMarker}
+		</svg>
+		<p class="ec-plot-caption">${points.length} finite points + O. Curve = <code>y² = x³ + ${curve.a}x + ${curve.b} (mod ${curve.p})</code>.</p>
+	`;
+}
+
 
 function renderEcdhResult(r: EcdhResult): string {
 	const status = r.agree
@@ -516,7 +607,103 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 	return section;
 }
 
-// ---------- 7. Why it matters ------------------------------------------------
+// ---------- 7. Sizes comparison ----------------------------------------------
+
+function renderSizes(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'sizes';
+	section.setAttribute('aria-labelledby', 'sizes-heading');
+
+	const max = Math.max(...SIZES.map((s) => s.bytes));
+	const rows = SIZES.map((s) => {
+		const pct = Math.max(2, (s.bytes / max) * 100);
+		return `
+			<li class="size-row">
+				<div class="size-label"><strong>${s.label}</strong> <span class="size-bytes">${s.bytes.toLocaleString()} B</span></div>
+				<div class="size-bar-track"><div class="size-bar-fill size-bar-fill--${s.id}" style="width: ${pct.toFixed(1)}%"></div></div>
+				<p class="size-note">${s.note}</p>
+			</li>
+		`;
+	}).join('');
+
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Section · 6</p>
+				<h2 id="sizes-heading">Sizes across generations</h2>
+				<p class="panel-copy">Public-key sizes at the parameter sets each generation is actually deployed at. The post-quantum move multiplies the public key by about 37× over X25519 — which is exactly why production deployments hedge with hybrid rather than just dropping ML-KEM in alone.</p>
+			</div>
+		</div>
+		<ul class="size-list" aria-label="Public-key byte sizes per generation">${rows}</ul>
+	`;
+	return section;
+}
+
+// ---------- 8. History timeline ----------------------------------------------
+
+function renderHistory(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'history';
+	section.setAttribute('aria-labelledby', 'history-heading');
+
+	const items = HISTORY.map(
+		(h) => `
+		<li class="hist-item hist-item--${h.kind}">
+			<div class="hist-year">${h.year}</div>
+			<div class="hist-body">
+				<p class="hist-kind">${h.kind}</p>
+				<h3>${h.title}</h3>
+				<p class="panel-copy">${h.body}</p>
+			</div>
+		</li>
+	`,
+	).join('');
+
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Section · 7</p>
+				<h2 id="history-heading">A dated history</h2>
+				<p class="panel-copy">Every entry below is something you can look up — paper, attack, RFC, FIPS standard.</p>
+			</div>
+		</div>
+		<ol class="hist-list">${items}</ol>
+	`;
+	return section;
+}
+
+// ---------- 9. Production deployments ---------------------------------------
+
+function renderDeployments(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'production';
+	section.setAttribute('aria-labelledby', 'production-heading');
+
+	const cards = DEPLOYMENTS.map(
+		(d) => `
+		<article class="panel-card">
+			<p class="hero-metric-label">${d.year}</p>
+			<h3>${d.name}</h3>
+			<p class="panel-copy">${d.what}</p>
+			<p class="panel-copy"><a class="deployment-link" href="${d.url}" target="_blank" rel="noopener noreferrer">Source ↗</a></p>
+		</article>
+	`,
+	).join('');
+
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Section · 8</p>
+				<h2 id="production-heading">Production today</h2>
+				<p class="panel-copy">Where hybrid X25519+ML-KEM is actually running, with sources you can verify.</p>
+			</div>
+		</div>
+		<div class="reuse-grid">${cards}</div>
+	`;
+	return section;
+}
+
+// ---------- 10. Why it matters -----------------------------------------------
 
 function renderWhyItMatters(): HTMLElement {
 	const section = el('section', 'lab-section');
@@ -536,7 +723,7 @@ function renderWhyItMatters(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 6</p>
+				<p class="section-kicker">Section · 9</p>
 				<h2 id="why-heading">Why it matters</h2>
 				<p class="panel-copy">The migration story in four cards.</p>
 			</div>
@@ -544,6 +731,94 @@ function renderWhyItMatters(): HTMLElement {
 		<div class="reuse-grid">${cards}</div>
 	`;
 	return section;
+}
+
+// ---------- 11. References + Glossary ---------------------------------------
+
+function renderRefs(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'refs';
+	section.setAttribute('aria-labelledby', 'refs-heading');
+
+	const refs = REFERENCES.map(
+		(r) => `
+		<li class="ref-row">
+			<span class="ref-meta">${r.authors} (${r.year})</span>
+			<a class="ref-title" href="${r.url}" target="_blank" rel="noopener noreferrer">${r.title}</a>
+			<span class="ref-venue">${r.venue}</span>
+		</li>
+	`,
+	).join('');
+
+	const glossary = GLOSSARY.map(
+		(g) => `
+		<div class="glossary-row">
+			<dt>${g.term}</dt>
+			<dd>${g.def}</dd>
+		</div>
+	`,
+	).join('');
+
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Section · 10</p>
+				<h2 id="refs-heading">References &amp; glossary</h2>
+				<p class="panel-copy">Canonical citations for everything claimed in the demo, plus a short glossary of the terms used.</p>
+			</div>
+		</div>
+		<div class="refs-grid">
+			<div>
+				<h3 class="refs-subhead">References</h3>
+				<ul class="refs-list">${refs}</ul>
+			</div>
+			<div>
+				<h3 class="refs-subhead">Glossary</h3>
+				<dl class="glossary">${glossary}</dl>
+			</div>
+		</div>
+	`;
+	return section;
+}
+
+// ---------- Section nav ------------------------------------------------------
+
+interface NavLink {
+	hash: string;
+	label: string;
+}
+
+const NAV_LINKS: NavLink[] = [
+	{ hash: 'generations', label: 'Generations' },
+	{ hash: 'dh', label: 'DH' },
+	{ hash: 'ecdh', label: 'ECDH' },
+	{ hash: 'kem', label: 'KEM' },
+	{ hash: 'hybrid', label: 'Hybrid' },
+	{ hash: 'sizes', label: 'Sizes' },
+	{ hash: 'history', label: 'History' },
+	{ hash: 'production', label: 'Production' },
+	{ hash: 'why', label: 'Why' },
+	{ hash: 'refs', label: 'References' },
+];
+
+function renderSectionNav(): HTMLElement {
+	const nav = el('nav', 'section-nav');
+	nav.setAttribute('aria-label', 'Section navigation');
+	nav.innerHTML = NAV_LINKS.map(
+		(n) => `<a class="section-nav-link" href="#${n.hash}">${n.label}</a>`,
+	).join('');
+	return nav;
+}
+
+function wireDeepLink(): void {
+	const id = window.location.hash.replace(/^#/, '');
+	if (!id) return;
+	const target = document.getElementById(id);
+	if (!target) return;
+	// Defer one frame so the rendered layout is settled before scrolling.
+	requestAnimationFrame(() => {
+		target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	});
 }
 
 // ---------- 8. Footer (scripture) -------------------------------------------
@@ -576,6 +851,7 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.id = 'playground-heading';
 
 	shell.appendChild(renderHero());
+	shell.appendChild(renderSectionNav());
 	shell.appendChild(renderTimeline());
 	const dhSection = renderDhPlayground();
 	shell.appendChild(dhSection);
@@ -592,8 +868,15 @@ export function mountApp(root: HTMLDivElement): void {
 			return r.sharedFromAlice;
 		}),
 	);
+	shell.appendChild(renderSizes());
+	shell.appendChild(renderHistory());
+	shell.appendChild(renderDeployments());
 	shell.appendChild(renderWhyItMatters());
+	shell.appendChild(renderRefs());
 	shell.appendChild(renderFooter());
 
 	root.replaceChildren(shell);
+
+	wireDeepLink();
+	window.addEventListener('hashchange', wireDeepLink);
 }

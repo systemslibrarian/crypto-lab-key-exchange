@@ -85,6 +85,24 @@ async function run(label, deviceOpts) {
 	await page.waitForFunction(() => /SHA-256/.test(document.querySelector('#hybrid-output')?.textContent ?? ''));
 	assert(true, 'hybrid combine renders session key');
 
+	// New 10/10 sections render
+	const navLinks = await page.locator('.section-nav-link').count();
+	assert(navLinks === 10, `section nav has 10 links (got ${navLinks})`);
+	const sizeRows = await page.locator('.size-row').count();
+	assert(sizeRows === 5, `sizes section has 5 rows (got ${sizeRows})`);
+	const histItems = await page.locator('.hist-item').count();
+	assert(histItems === 9, `history timeline has 9 items (got ${histItems})`);
+	const deployments = await page.locator('#production .panel-card').count();
+	assert(deployments === 5, `production section has 5 deployments (got ${deployments})`);
+	const refs = await page.locator('.ref-row').count();
+	assert(refs === 8, `references has 8 entries (got ${refs})`);
+	const glossary = await page.locator('.glossary-row').count();
+	assert(glossary === 8, `glossary has 8 entries (got ${glossary})`);
+	const curveDots = await page.locator('.ec-svg-dot').count();
+	assert(curveDots === 18, `EC curve plot has 18 finite points (got ${curveDots})`);
+	const highlighted = await page.locator('.ec-svg-dot.ec-dot--g, .ec-svg-dot.ec-dot--a, .ec-svg-dot.ec-dot--b, .ec-svg-dot.ec-dot--shared').count();
+	assert(highlighted >= 3, `curve plot highlights G/A/B/shared (got ${highlighted})`);
+
 	// Scripture footer is last visible element
 	const lastText = await page.evaluate(() => {
 		const all = document.querySelectorAll('p');
