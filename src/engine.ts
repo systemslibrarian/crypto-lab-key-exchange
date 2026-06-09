@@ -256,9 +256,11 @@ export async function hybridCombine(
 
 function hexToBytes(hex: string): Uint8Array {
 	const clean = hex.replace(/[^0-9a-fA-F]/g, '');
-	const out = new Uint8Array(clean.length / 2);
+	// Pad odd-length strings with a leading zero to prevent truncating the last nibble
+	const padded = clean.length % 2 === 0 ? clean : '0' + clean;
+	const out = new Uint8Array(padded.length / 2);
 	for (let i = 0; i < out.length; i++) {
-		out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+		out[i] = parseInt(padded.slice(i * 2, i * 2 + 2), 16);
 	}
 	return out;
 }
