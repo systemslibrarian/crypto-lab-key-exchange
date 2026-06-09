@@ -13,6 +13,7 @@ import {
 	hybridCombine,
 	isOnCurve,
 	mlkemEncapsulateDemo,
+	modPow,
 	pointToString,
 	type Curve,
 	type DhResult,
@@ -46,6 +47,43 @@ function clampInt(value: string, min: number, max: number, fallback: number): nu
 	const n = parseInt(value, 10);
 	if (!Number.isFinite(n)) return fallback;
 	return Math.min(max, Math.max(min, n));
+}
+
+// Inline copy-to-clipboard button.  Wraps any value in a small chip with a
+// "Copy" button that flips to "Copied" for ~1.4s on success.  Returns a
+// raw HTML string so it can be embedded inside the existing innerHTML
+// builders; wiring happens via the global delegate set up in mountApp.
+function copyChip(value: string, label = 'Copy'): string {
+	// HTML-escape the value for the data-attribute and the visible chip.
+	const safe = value
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;');
+	return `<button type="button" class="copy-chip" data-copy="${safe}" aria-label="Copy ${label} to clipboard">📋 ${label}</button>`;
+}
+
+function wireCopyButtons(root: HTMLElement): void {
+	root.addEventListener('click', async (e) => {
+		const target = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('.copy-chip');
+		if (!target) return;
+		const value = target.dataset.copy ?? '';
+		try {
+			await navigator.clipboard.writeText(value);
+			const original = target.innerHTML;
+			target.innerHTML = '✓ Copied';
+			target.classList.add('copy-chip--ok');
+			setTimeout(() => {
+				target.innerHTML = original;
+				target.classList.remove('copy-chip--ok');
+			}, 1400);
+		} catch {
+			target.innerHTML = '✗ Failed';
+			setTimeout(() => {
+				target.innerHTML = '📋 Copy';
+			}, 1400);
+		}
+	});
 }
 
 // ---------- 1. Hero ----------------------------------------------------------
@@ -254,7 +292,14 @@ function renderDhPlayground(): HTMLElement {
 		const { p, g, a, b } = read();
 		const A = diffieHellman(p, g, a, b).A;
 		const recovered = discreteLogAttack(g, A, p);
-		attackOut.innerHTML = renderDhAttack(recovered, a, A, g, p);
+		// Re-run with a counter so we can show how many operations the
+		// brute force actually took.
+		let iterations = 0;
+		for (let x = 1; x < p; x++) {
+			iterations++;
+			if (modPow(g, x, p) === A) break;
+		}
+		attackOut.innerHTML = renderDhAttack(recovered, a, A, g, p, iterations);
 	});
 
 	rerun();
@@ -270,32 +315,204 @@ function renderDhResult(r: DhResult): string {
 			<div class="kx-side">
 				<p class="hero-metric-label">Alice</p>
 				<p class="mono-inline">A = g<sup>a</sup> mod p = ${r.g}<sup>${r.a}</sup> mod ${r.p} = <strong>${r.A}</strong></p>
-				<p class="mono-inline">shared = B<sup>a</sup> mod p = ${r.B}<sup>${r.a}</sup> mod ${r.p} = <strong>${r.sharedFromAlice}</strong></p>
+				<p class="mono-inline">shared = B<sup>a</sup> mod p = ${r.B}<sup>${r.a}</sup> mod ${r.p} = <strong>${r.sharedFromAlice}</strong> ${copyChip(String(r.sharedFromAlice), 'shared')}</p>
 			</div>
 			<div class="kx-side">
 				<p class="hero-metric-label">Bob</p>
 				<p class="mono-inline">B = g<sup>b</sup> mod p = ${r.g}<sup>${r.b}</sup> mod ${r.p} = <strong>${r.B}</strong></p>
-				<p class="mono-inline">shared = A<sup>b</sup> mod p = ${r.A}<sup>${r.b}</sup> mod ${r.p} = <strong>${r.sharedFromBob}</strong></p>
+				<p class="mono-inline">shared = A<sup>b</sup> mod p = ${r.A}<sup>${r.b}</sup> mod ${r.p} = <strong>${r.sharedFromBob}</strong> ${copyChip(String(r.sharedFromBob), 'shared')}</p>
 			</div>
 		</div>
 		<p class="kx-status">${status}</p>
 	`;
 }
 
-function renderDhAttack(recovered: number | null, real: number, A: number, g: number, p: number): string {
+function renderDhAttack(
+	recovered: number | null,
+	real: number,
+	A: number,
+	g: number,
+	p: number,
+	iterations: number,
+): string {
 	if (recovered === null) {
 		return `<p class="scenario-status--invalid">Brute force found no exponent — check inputs (g should be a generator mod p).</p>`;
 	}
 	const matches = recovered === real;
+	// Estimate human-scale time at 10^9 modular exponentiations per second
+	// (optimistic single-core; index-calculus is much faster than naive
+	// brute force, but for teaching purposes the naive view is what we ran).
+	const opsPerSec = 1e9;
+	const ageOfUniverseSec = 4.35e17; // ~13.8 billion years
+	function fmtTime(ops: number): string {
+		const sec = ops / opsPerSec;
+		if (sec < 1e-6) return `< 1 µs`;
+		if (sec < 1e-3) return `< 1 ms`;
+		if (sec < 1) return `${(sec * 1000).toFixed(1)} ms`;
+		if (sec < 60) return `${sec.toFixed(1)} s`;
+		if (sec < 3600) return `${(sec / 60).toFixed(1)} min`;
+		if (sec < 86400) return `${(sec / 3600).toFixed(1)} h`;
+		if (sec < 86400 * 365) return `${(sec / 86400).toFixed(1)} days`;
+		if (sec < 86400 * 365 * 1e6) return `${(sec / (86400 * 365)).toFixed(1)} years`;
+		const universes = sec / ageOfUniverseSec;
+		if (universes < 1e9) return `${universes.toExponential(1)} × age of universe`;
+		return `≫ age of universe`;
+	}
+	function fmtOps(ops: number): string {
+		if (ops < 1e6) return ops.toLocaleString();
+		return ops.toExponential(1);
+	}
+	const tiers = [
+		{ label: 'Your demo run', bits: Math.ceil(Math.log2(p)), ops: iterations, here: true },
+		{ label: 'Hobby laptop, 2^32 bits', bits: 32, ops: 2 ** 32, here: false },
+		{ label: '64-bit prime', bits: 64, ops: 2 ** 64, here: false },
+		{ label: '1024-bit DH (broken)', bits: 1024, ops: 2 ** 110, here: false }, // ~ index-calculus effort
+		{ label: '2048-bit DH (production)', bits: 2048, ops: 2 ** 160, here: false },
+	];
+	const rows = tiers
+		.map(
+			(t) => `
+		<tr class="${t.here ? 'scale-row scale-row--here' : 'scale-row'}">
+			<td>${t.here ? '<strong>← you are here</strong> ' : ''}${t.label}</td>
+			<td class="mono-cell">${t.bits} bits</td>
+			<td class="mono-cell">${fmtOps(t.ops)}</td>
+			<td class="mono-cell">${fmtTime(t.ops)}</td>
+		</tr>
+	`,
+		)
+		.join('');
 	return `
 		<div class="attack-card">
 			<p class="hero-metric-label">Eve, watching the wire</p>
 			<p class="mono-inline">Observed: g=${g}, p=${p}, A=${A}</p>
 			<p class="mono-inline">Brute force: try x = 1, 2, … until g<sup>x</sup> mod p = A</p>
 			<p class="mono-inline">Recovered Alice’s secret: <strong>x = ${recovered}</strong> ${matches ? '✓' : '(matches a different exponent in same residue class)'}</p>
-			<p class="kx-footnote">This is only feasible because <code>p</code> is tiny. Real Diffie–Hellman uses 2048–4096-bit primes where this brute force is astronomically infeasible (and even index-calculus, the best classical attack, is sub-exponential).</p>
+			<p class="mono-inline">Iterations needed: <strong>${iterations}</strong></p>
+			<h3 class="attack-table-heading">How this scales</h3>
+			<div class="table-shell" tabindex="0" role="region" aria-label="Discrete-log brute-force scaling table">
+				<table class="math-table scale-table">
+					<thead><tr><th>Setting</th><th>Prime size</th><th>Operations</th><th>Time at 10⁹ ops/s</th></tr></thead>
+					<tbody>${rows}</tbody>
+				</table>
+			</div>
+			<p class="kx-footnote">The naive brute force above scales linearly with <code>p</code>; the best classical attack (index calculus) is sub-exponential, but real-DH primes are still chosen so even that takes longer than the age of the universe. Shor’s quantum algorithm collapses both to polynomial time.</p>
 		</div>
 	`;
+}
+
+// ---------- 3b. MitM panel ---------------------------------------------------
+
+// The classic critique of textbook DH: confidentiality against a passive
+// eavesdropper, NOTHING about authentication. Eve sits in the middle and
+// runs TWO DH exchanges — Alice ↔ Eve and Eve ↔ Bob — so each end thinks
+// they share a secret with the other, but really they share a secret with
+// Eve. Alice and Bob never compute the same value.
+function renderMitm(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'mitm';
+	section.setAttribute('aria-labelledby', 'mitm-heading');
+
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Section · 3</p>
+				<h2 id="mitm-heading">What DH does NOT give you</h2>
+				<p class="panel-copy">DH protects against a passive eavesdropper who only watches the wire. It gives <em>zero</em> protection against an active attacker who can intercept and replace messages. Watch Eve sit in the middle and trick both sides into sharing a secret with <em>her</em>.</p>
+			</div>
+		</div>
+		<div class="kx-inputs" role="group" aria-label="MitM inputs">
+			<label>
+				<span>Prime <code>p</code></span>
+				<input type="number" id="mitm-p" min="3" max="9973" value="23" />
+			</label>
+			<label>
+				<span>Generator <code>g</code></span>
+				<input type="number" id="mitm-g" min="2" value="5" />
+			</label>
+			<label>
+				<span>Alice secret <code>a</code></span>
+				<input type="number" id="mitm-a" min="1" value="6" />
+			</label>
+			<label>
+				<span>Bob secret <code>b</code></span>
+				<input type="number" id="mitm-b" min="1" value="15" />
+			</label>
+			<label>
+				<span>Eve→Alice <code>e₁</code></span>
+				<input type="number" id="mitm-e1" min="1" value="4" />
+			</label>
+			<label>
+				<span>Eve→Bob <code>e₂</code></span>
+				<input type="number" id="mitm-e2" min="1" value="11" />
+			</label>
+		</div>
+		<div id="mitm-output" class="kx-output" aria-live="polite"></div>
+	`;
+
+	const fields = ['p', 'g', 'a', 'b', 'e1', 'e2'] as const;
+	const inputs = Object.fromEntries(
+		fields.map((f) => [f, section.querySelector<HTMLInputElement>(`#mitm-${f}`)!]),
+	) as Record<(typeof fields)[number], HTMLInputElement>;
+	const output = section.querySelector<HTMLElement>('#mitm-output')!;
+
+	function rerun(): void {
+		const p = clampInt(inputs.p.value, 3, 9973, 23);
+		const g = clampInt(inputs.g.value, 2, p - 1, 5);
+		const a = clampInt(inputs.a.value, 1, p - 1, 6);
+		const b = clampInt(inputs.b.value, 1, p - 1, 15);
+		const e1 = clampInt(inputs.e1.value, 1, p - 1, 4);
+		const e2 = clampInt(inputs.e2.value, 1, p - 1, 11);
+
+		// Honest values each party WOULD compute on a clean wire.
+		const A = modPow(g, a, p);
+		const B = modPow(g, b, p);
+		// Eve's substituted public values, masquerading as Bob/Alice.
+		const E1 = modPow(g, e1, p); // Eve's "I am Bob" key, sent to Alice
+		const E2 = modPow(g, e2, p); // Eve's "I am Alice" key, sent to Bob
+		// What each end computes after Eve's swap.
+		const aliceShared = modPow(E1, a, p); // Alice thinks: g^(a·b); really: g^(a·e1)
+		const bobShared = modPow(E2, b, p); // Bob thinks: g^(b·a); really: g^(b·e2)
+		// What Eve computes — both halves, because she knows e1 and e2.
+		const eveWithAlice = modPow(A, e1, p); // = g^(a·e1) = Alice's view
+		const eveWithBob = modPow(B, e2, p); // = g^(b·e2) = Bob's view
+
+		const matchAlice = aliceShared === eveWithAlice;
+		const matchBob = bobShared === eveWithBob;
+		const aliceBob = aliceShared === bobShared;
+
+		output.innerHTML = `
+			<div class="mitm-diagram" aria-hidden="true">
+				<div class="mitm-party mitm-party--alice">
+					<p class="hero-metric-label">Alice</p>
+					<p class="mono-inline">sees “Bob's” key: E₁ = ${E1}</p>
+					<p class="mono-inline">computes: <strong>${aliceShared}</strong></p>
+				</div>
+				<div class="mitm-party mitm-party--eve">
+					<p class="hero-metric-label">Eve (in the middle)</p>
+					<p class="mono-inline">with Alice: A<sup>e₁</sup> = <strong>${eveWithAlice}</strong></p>
+					<p class="mono-inline">with Bob: B<sup>e₂</sup> = <strong>${eveWithBob}</strong></p>
+				</div>
+				<div class="mitm-party mitm-party--bob">
+					<p class="hero-metric-label">Bob</p>
+					<p class="mono-inline">sees “Alice's” key: E₂ = ${E2}</p>
+					<p class="mono-inline">computes: <strong>${bobShared}</strong></p>
+				</div>
+			</div>
+			<dl class="mitm-checks">
+				<dt>Alice's secret matches what Eve has</dt>
+				<dd class="${matchAlice ? 'scenario-status--invalid' : 'scenario-status--valid'}">${matchAlice ? '✗ Eve can decrypt Alice→Bob' : '✓ Mismatch (good for Alice)'}</dd>
+				<dt>Bob's secret matches what Eve has</dt>
+				<dd class="${matchBob ? 'scenario-status--invalid' : 'scenario-status--valid'}">${matchBob ? '✗ Eve can decrypt Bob→Alice' : '✓ Mismatch (good for Bob)'}</dd>
+				<dt>Alice and Bob computed the same secret</dt>
+				<dd class="${aliceBob ? 'scenario-status--valid' : 'scenario-status--invalid'}">${aliceBob ? '✓ Same (degenerate case — try different e₁, e₂)' : '✗ Different secrets — they are talking to Eve, not each other'}</dd>
+			</dl>
+			<p class="kx-footnote"><strong>The fix is authentication, not better key exchange.</strong> TLS signs the DH/ECDH/X25519 public values with the server's certificate; Signal authenticates via the long-term identity key; IPsec uses pre-shared keys or PKI. Without one of those, every "secure channel" protocol — classical or post-quantum — is just a private channel to whoever is in the middle.</p>
+		`;
+	}
+
+	Object.values(inputs).forEach((i) => i.addEventListener('input', rerun));
+	rerun();
+	return section;
 }
 
 // ---------- 4. ECDH playground -----------------------------------------------
@@ -310,7 +527,7 @@ function renderEcdhPlayground(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 3</p>
+				<p class="section-kicker">Section · 4</p>
 				<h2 id="ecdh-heading">Live ECDH</h2>
 				<p class="panel-copy">The same Diffie–Hellman idea, on an elliptic curve. We use a tiny teaching curve so every point is visible.</p>
 			</div>
@@ -342,6 +559,21 @@ function renderEcdhPlayground(): HTMLElement {
 					<li><span class="ec-dot ec-dot--shared"></span>shared = a·B = b·A</li>
 				</ul>
 			</div>
+		</div>
+		<h3 class="curve-contrast-heading">Demo curve vs Curve25519</h3>
+		<div class="table-shell" tabindex="0" role="region" aria-label="Demo curve vs Curve25519 comparison">
+			<table class="math-table curve-contrast">
+				<thead><tr><th>Property</th><th>This demo</th><th>Curve25519 (production)</th></tr></thead>
+				<tbody>
+					<tr><td>Prime <code>p</code></td><td class="mono-cell">17</td><td class="mono-cell">2²⁵⁵ − 19</td></tr>
+					<tr><td>Curve equation</td><td class="mono-cell">y² = x³ + 2x + 2</td><td class="mono-cell">y² = x³ + 486662 x² + x (Montgomery)</td></tr>
+					<tr><td>Generator</td><td class="mono-cell">(5, 1)</td><td class="mono-cell">u = 9 (Montgomery x-coord)</td></tr>
+					<tr><td>Group order <code>n</code></td><td class="mono-cell">19 points + ∞</td><td class="mono-cell">≈ 2²⁵²</td></tr>
+					<tr><td>Bits of classical security</td><td class="mono-cell">≈ 2 (broken instantly)</td><td class="mono-cell">≈ 128 (production target)</td></tr>
+					<tr><td>Public key size</td><td class="mono-cell">1 byte</td><td class="mono-cell">32 bytes</td></tr>
+					<tr><td>Year / author</td><td class="mono-cell">teaching only</td><td class="mono-cell">2006, D. J. Bernstein</td></tr>
+				</tbody>
+			</table>
 		</div>
 	`;
 
@@ -466,7 +698,7 @@ function renderKemSection(state: SharedSecrets): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 4</p>
+				<p class="section-kicker">Section · 5</p>
 				<h2 id="kem-heading">The mechanic shift: KEM vs DH</h2>
 				<p class="panel-copy">DH and ECDH have <em>both</em> sides exponentiate to a shared value. A KEM has Bob <em>encapsulate</em> a fresh secret to Alice’s public key, and Alice <em>decapsulates</em>. Different shape, same end state.</p>
 			</div>
@@ -521,12 +753,12 @@ function renderKemResult(r: KemResult): string {
 		<div class="kx-grid">
 			<div class="kx-side">
 				<p class="hero-metric-label">Bob (encapsulator)</p>
-				<p class="mono-inline">secret = <strong>${shortHex(r.bobSecret)}</strong></p>
-				<p class="mono-inline">ciphertext → Alice = <strong>${shortHex(r.ciphertext)}</strong></p>
+				<p class="mono-inline">secret = <strong>${shortHex(r.bobSecret)}</strong> ${copyChip(r.bobSecret, 'secret')}</p>
+				<p class="mono-inline">ciphertext → Alice = <strong>${shortHex(r.ciphertext)}</strong> ${copyChip(r.ciphertext, 'ciphertext')}</p>
 			</div>
 			<div class="kx-side">
 				<p class="hero-metric-label">Alice (decapsulator)</p>
-				<p class="mono-inline">recovered secret = <strong>${shortHex(r.aliceSecret)}</strong></p>
+				<p class="mono-inline">recovered secret = <strong>${shortHex(r.aliceSecret)}</strong> ${copyChip(r.aliceSecret, 'secret')}</p>
 				<p class="mono-inline">agree: ${r.agree ? '✓' : '✗'}</p>
 			</div>
 		</div>
@@ -549,7 +781,7 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 5</p>
+				<p class="section-kicker">Section · 6</p>
 				<h2 id="hybrid-heading">Hybrid combine</h2>
 				<p class="panel-copy">Take the DH shared secret and the ML-KEM secret, hash them together, and use the result as the session key. The channel survives unless <em>both</em> halves break.</p>
 			</div>
@@ -583,7 +815,7 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 				</div>
 				<div class="kx-side">
 					<p class="hero-metric-label">Session key = SHA-256(dh ‖ kem)</p>
-					<p class="mono-inline">${session}</p>
+					<p class="mono-inline">${session} ${copyChip(session, 'session key')}</p>
 				</div>
 				<p class="kx-footnote">This is the bridge protocol in production today — X25519MLKEM768 in TLS 1.3, Apple iMessage PQ3, AWS KMS. Secure if either half holds.</p>
 			`;
@@ -629,7 +861,7 @@ function renderSizes(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 6</p>
+				<p class="section-kicker">Section · 7</p>
 				<h2 id="sizes-heading">Sizes across generations</h2>
 				<p class="panel-copy">Public-key sizes at the parameter sets each generation is actually deployed at. The post-quantum move multiplies the public key by about 37× over X25519 — which is exactly why production deployments hedge with hybrid rather than just dropping ML-KEM in alone.</p>
 			</div>
@@ -662,7 +894,7 @@ function renderHistory(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 7</p>
+				<p class="section-kicker">Section · 8</p>
 				<h2 id="history-heading">A dated history</h2>
 				<p class="panel-copy">Every entry below is something you can look up — paper, attack, RFC, FIPS standard.</p>
 			</div>
@@ -693,7 +925,7 @@ function renderDeployments(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 8</p>
+				<p class="section-kicker">Section · 9</p>
 				<h2 id="production-heading">Production today</h2>
 				<p class="panel-copy">Where hybrid X25519+ML-KEM is actually running, with sources you can verify.</p>
 			</div>
@@ -723,7 +955,7 @@ function renderWhyItMatters(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 9</p>
+				<p class="section-kicker">Section · 10</p>
 				<h2 id="why-heading">Why it matters</h2>
 				<p class="panel-copy">The migration story in four cards.</p>
 			</div>
@@ -762,7 +994,7 @@ function renderRefs(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 10</p>
+				<p class="section-kicker">Section · 11</p>
 				<h2 id="refs-heading">References &amp; glossary</h2>
 				<p class="panel-copy">Canonical citations for everything claimed in the demo, plus a short glossary of the terms used.</p>
 			</div>
@@ -791,6 +1023,7 @@ interface NavLink {
 const NAV_LINKS: NavLink[] = [
 	{ hash: 'generations', label: 'Generations' },
 	{ hash: 'dh', label: 'DH' },
+	{ hash: 'mitm', label: 'MitM' },
 	{ hash: 'ecdh', label: 'ECDH' },
 	{ hash: 'kem', label: 'KEM' },
 	{ hash: 'hybrid', label: 'Hybrid' },
@@ -819,6 +1052,116 @@ function wireDeepLink(): void {
 	requestAnimationFrame(() => {
 		target.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	});
+}
+
+// Sticky-nav scroll-spy: as sections cross above the middle of the viewport
+// we mark the matching nav link as is-active. IntersectionObserver lets us
+// skip the scroll-listener-on-every-pixel pattern; we rebuild active state
+// only when something actually crosses the threshold.
+// Number keys 1–9 + 0 jump to the corresponding nav link. Pressing "?"
+// toggles a compact help dialog. Shortcuts are suppressed when the user
+// is typing into an input — pressing "1" inside the prime field should
+// type a 1, not navigate.
+function wireKeyboardShortcuts(): void {
+	const help = document.createElement('div');
+	help.className = 'kbd-help';
+	help.setAttribute('role', 'dialog');
+	help.setAttribute('aria-modal', 'true');
+	help.setAttribute('aria-labelledby', 'kbd-help-title');
+	help.hidden = true;
+	help.innerHTML = `
+		<div class="kbd-help-card">
+			<h3 id="kbd-help-title">Keyboard shortcuts</h3>
+			<dl>
+				${NAV_LINKS.map((n, i) => `<dt><kbd>${i === 9 ? '0' : i + 1}</kbd></dt><dd>Jump to ${n.label}</dd>`).join('')}
+				<dt><kbd>?</kbd></dt><dd>Toggle this help</dd>
+				<dt><kbd>Esc</kbd></dt><dd>Close help</dd>
+			</dl>
+			<button type="button" class="kbd-help-close tab-button">Close</button>
+		</div>
+	`;
+	document.body.appendChild(help);
+	const closeBtn = help.querySelector<HTMLButtonElement>('.kbd-help-close')!;
+	closeBtn.addEventListener('click', () => {
+		help.hidden = true;
+	});
+
+	function isTyping(): boolean {
+		const a = document.activeElement;
+		if (!a) return false;
+		const tag = a.tagName.toLowerCase();
+		return tag === 'input' || tag === 'textarea' || tag === 'select' || (a as HTMLElement).isContentEditable;
+	}
+
+	document.addEventListener('keydown', (e: KeyboardEvent) => {
+		if (e.metaKey || e.ctrlKey || e.altKey) return;
+		if (e.key === 'Escape' && !help.hidden) {
+			help.hidden = true;
+			return;
+		}
+		if (isTyping()) return;
+		if (e.key === '?') {
+			help.hidden = !help.hidden;
+			if (!help.hidden) closeBtn.focus();
+			e.preventDefault();
+			return;
+		}
+		if (/^[0-9]$/.test(e.key)) {
+			const idx = e.key === '0' ? 9 : parseInt(e.key, 10) - 1;
+			const target = NAV_LINKS[idx];
+			if (!target) return;
+			const el = document.getElementById(target.hash);
+			if (!el) return;
+			el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			history.replaceState(null, '', `#${target.hash}`);
+			e.preventDefault();
+		}
+	});
+}
+
+function wireScrollSpy(): void {
+	const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('.section-nav-link'));
+	if (links.length === 0) return;
+	const linkByHash = new Map(links.map((l) => [l.getAttribute('href')?.slice(1) ?? '', l]));
+	const visible = new Set<string>();
+
+	const observer = new IntersectionObserver(
+		(entries) => {
+			for (const entry of entries) {
+				const id = entry.target.id;
+				if (entry.isIntersecting) visible.add(id);
+				else visible.delete(id);
+			}
+			// Highlight the first visible section in document order so the
+			// active link tracks the section you're currently reading.
+			const ids = NAV_LINKS.map((n) => n.hash).filter((id) => visible.has(id));
+			const active = ids[0];
+			for (const link of links) {
+				link.classList.toggle(
+					'is-active',
+					link.getAttribute('href') === `#${active}`,
+				);
+				if (link.getAttribute('href') === `#${active}`) {
+					link.setAttribute('aria-current', 'location');
+				} else {
+					link.removeAttribute('aria-current');
+				}
+			}
+			// Auto-scroll the nav so the active link is in view (mobile-friendly).
+			if (active) {
+				const activeLink = linkByHash.get(active);
+				activeLink?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+			}
+		},
+		{ rootMargin: '-20% 0% -65% 0%' },
+	);
+
+	for (const link of links) {
+		const id = link.getAttribute('href')?.slice(1);
+		if (!id) continue;
+		const target = document.getElementById(id);
+		if (target) observer.observe(target);
+	}
 }
 
 // ---------- 8. Footer (scripture) -------------------------------------------
@@ -855,6 +1198,7 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderTimeline());
 	const dhSection = renderDhPlayground();
 	shell.appendChild(dhSection);
+	shell.appendChild(renderMitm());
 	shell.appendChild(renderEcdhPlayground());
 	shell.appendChild(renderKemSection(state));
 	shell.appendChild(
@@ -879,4 +1223,7 @@ export function mountApp(root: HTMLDivElement): void {
 
 	wireDeepLink();
 	window.addEventListener('hashchange', wireDeepLink);
+	wireScrollSpy();
+	wireKeyboardShortcuts();
+	wireCopyButtons(shell);
 }

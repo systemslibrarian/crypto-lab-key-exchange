@@ -85,9 +85,24 @@ async function run(label, deviceOpts) {
 	await page.waitForFunction(() => /SHA-256/.test(document.querySelector('#hybrid-output')?.textContent ?? ''));
 	assert(true, 'hybrid combine renders session key');
 
+	// MitM section
+	const mitmParties = await page.locator('.mitm-party').count();
+	assert(mitmParties === 3, `MitM has 3 parties (got ${mitmParties})`);
+	const mitmOut = await page.locator('#mitm-output').textContent();
+	assert(/Different secrets/.test(mitmOut ?? ''), 'MitM shows Alice and Bob have different secrets');
+
+	// Discrete-log scaling table
+	await page.click('#dh-attack');
+	const scaleRows = await page.locator('.scale-row').count();
+	assert(scaleRows === 5, `scaling table has 5 tiers (got ${scaleRows})`);
+
+	// Curve25519 contrast
+	const contrastRows = await page.locator('.curve-contrast tbody tr').count();
+	assert(contrastRows === 7, `Curve25519 contrast has 7 rows (got ${contrastRows})`);
+
 	// New 10/10 sections render
 	const navLinks = await page.locator('.section-nav-link').count();
-	assert(navLinks === 10, `section nav has 10 links (got ${navLinks})`);
+	assert(navLinks === 11, `section nav has 11 links (got ${navLinks})`);
 	const sizeRows = await page.locator('.size-row').count();
 	assert(sizeRows === 5, `sizes section has 5 rows (got ${sizeRows})`);
 	const histItems = await page.locator('.hist-item').count();
@@ -102,6 +117,25 @@ async function run(label, deviceOpts) {
 	assert(curveDots === 18, `EC curve plot has 18 finite points (got ${curveDots})`);
 	const highlighted = await page.locator('.ec-svg-dot.ec-dot--g, .ec-svg-dot.ec-dot--a, .ec-svg-dot.ec-dot--b, .ec-svg-dot.ec-dot--shared').count();
 	assert(highlighted >= 3, `curve plot highlights G/A/B/shared (got ${highlighted})`);
+
+	// Copy buttons present on key outputs
+	const copyChips = await page.locator('.copy-chip').count();
+	assert(copyChips >= 3, `copy chips on key outputs (got ${copyChips})`);
+
+	// Keyboard shortcuts: pressing "5" jumps to KEM section (5th nav link)
+	await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+	await page.keyboard.press('5');
+	await page.waitForTimeout(400);
+	const hashAfter5 = await page.evaluate(() => window.location.hash);
+	assert(hashAfter5 === '#kem', `key '5' jumps to KEM (hash=${hashAfter5})`);
+
+	// "?" opens help dialog
+	await page.keyboard.press('?');
+	const helpVisible = await page.locator('.kbd-help').isVisible();
+	assert(helpVisible, 'pressing ? opens keyboard-shortcuts help');
+	await page.keyboard.press('Escape');
+	const helpHiddenAfterEsc = await page.locator('.kbd-help[hidden]').count();
+	assert(helpHiddenAfterEsc === 1, 'Escape closes help');
 
 	// Scripture footer is last visible element
 	const lastText = await page.evaluate(() => {
