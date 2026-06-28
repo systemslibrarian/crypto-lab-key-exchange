@@ -10,30 +10,46 @@ An interactive walk through five generations of key exchange: Diffie–Hellman (
 - **Briefing engineers on hybrid** — make X25519MLKEM768 concrete by computing the combine yourself.
 - **Demonstrating why discrete log fails on tiny primes** — the "Break it" button actually recovers Alice's secret exponent, and the same algorithm would take heat-death timescales on a real 2048-bit DH group.
 - **Reference: in production, use these** — X25519 today for classical ECDH; ML-KEM (FIPS 203) for post-quantum; hybrid X25519+ML-KEM during migration. Use a vetted library (BoringSSL, OpenSSL, liboqs, libsodium, BouncyCastle) — never roll your own.
-- **Do NOT use this demo's tiny p, g, or curve for anything** — they exist so the brute-force discrete log can run in your browser. That is the entire point of choosing them.
+- Do NOT use this demo's tiny p, g, or curve for anything — they exist so the brute-force discrete log can run in your browser. That is the entire point of choosing them.
 
 ## Live Demo
 
-[**https://systemslibrarian.github.io/crypto-lab-key-exchange/**](https://systemslibrarian.github.io/crypto-lab-key-exchange/)
+**[systemslibrarian.github.io/crypto-lab-key-exchange](https://systemslibrarian.github.io/crypto-lab-key-exchange/)**
 
 The page is one long scrollable lesson with a sticky scroll-spy nav at the top. Inside: a production decision card, the five-generation tablist, live DH and MitM playgrounds, ECDH with a plot of every point on the demo curve, the KEM flow model, the hybrid combine, an all-five comparison table, sizes and history sections, a roster of real production deployments, interactive Shor classical order-finding, a Module-LWE visualization, a closing "remember three things" synthesis, and a references-and-glossary panel. Number keys `1`–`9` and `0` jump between sections; `?` opens the keyboard-shortcut help. Every interactive section carries an explicit threat-model chip strip (what it protects against, what it does not) and a visible "toy parameters" warning.
+
+## What Can Go Wrong
+
+- **Unauthenticated Diffie–Hellman** is wide open to a man-in-the-middle; key agreement must be authenticated by signatures, certificates, or a PAKE.
+- **Weak or unvalidated group parameters** enable downgrade and precomputation attacks (e.g., Logjam against export-grade DH groups).
+- **Reusing ephemeral keys** turns ephemeral DH into static DH and forfeits forward secrecy.
+- **Skipping point/parameter validation** invites small-subgroup and invalid-curve attacks that can leak the private key.
+- **Classical-only DH/ECDH** is vulnerable to harvest-now-decrypt-later once a large quantum computer exists — which is why hybrid X25519+ML-KEM exists.
+
+## Real-World Usage
+
+- **X25519** is the default key exchange in TLS 1.3 (RFC 8446) and in SSH.
+- **The Signal Protocol** builds X3DH and the Double Ratchet on X25519.
+- **WireGuard** uses X25519 in its Noise-based handshake.
+- **ML-KEM** (FIPS 203) is NIST's standardized post-quantum KEM.
+- **Hybrid X25519MLKEM768** is deployed in TLS 1.3 by Chrome and Cloudflare for the migration period.
 
 ## How to Run Locally
 
 ```bash
-git clone https://github.com/systemslibrarian/crypto-lab-key-exchange.git
+git clone https://github.com/systemslibrarian/crypto-lab-key-exchange
 cd crypto-lab-key-exchange
 npm install
-npm run dev        # local dev server with HMR
-npm run build      # type-check + production build to dist/
-npm run preview    # serve the built dist/ locally
-npm test           # deterministic engine unit tests
-npm run smoke      # Playwright smoke (needs `npm run preview` running)
-npm run axe        # axe-core WCAG 2.1 A/AA audit (needs preview running)
-npm run verify     # build + tests (full local CI pass)
+npm run dev
 ```
 
-No environment variables, no API keys, no servers. Everything runs client-side in the browser.
+## Related Demos
+
+- [crypto-lab-curve-lens](https://systemslibrarian.github.io/crypto-lab-curve-lens/) — ECC and ECDH on Curve25519 and P-256 up close.
+- [crypto-lab-hybrid-wire](https://systemslibrarian.github.io/crypto-lab-hybrid-wire/) — the X25519 + ML-KEM-768 hybrid wire protocol end to end.
+- [crypto-lab-pq-tls-handshake](https://systemslibrarian.github.io/crypto-lab-pq-tls-handshake/) — X25519MLKEM768 inside the TLS 1.3 key schedule.
+- [crypto-lab-x3dh-wire](https://systemslibrarian.github.io/crypto-lab-x3dh-wire/) — Signal's X3DH key agreement.
+- [crypto-lab-noise-pipe](https://systemslibrarian.github.io/crypto-lab-noise-pipe/) — Noise handshake patterns over X25519.
 
 ## How to Teach From It
 
@@ -70,6 +86,8 @@ What is tested, what is intentionally not tested, and how to run each:
 | Accessibility audit | `npm run axe` | axe-core WCAG 2.1 A/AA against six configurations (3 viewport widths × 2 themes). Currently zero violations. |
 | Full local CI pass | `npm run verify` | Runs `build` + `test` and then expects you to run `smoke` / `axe` against a `preview` server. (CI runs all of them automatically on every push and PR.) |
 
+Additional scripts: `npm run build` (type-check + production build to `dist/`) and `npm run preview` (serve the built `dist/` locally). No environment variables, no API keys, no servers — everything runs client-side in the browser.
+
 What is **not** tested, by design:
 - The visual appearance of the EC curve plot (only the count of finite points and the highlight classification is asserted).
 - The exact text of every long-form explanation — that would freeze the prose against intentional editing.
@@ -78,10 +96,8 @@ What is **not** tested, by design:
 
 CI runs `build + test + smoke + axe` on every push to `main` and on every PR (`.github/workflows/ci.yml`). The deploy workflow (`.github/workflows/deploy.yml`) only fires on push to `main`.
 
-## Part of the Crypto-Lab Suite
-
-This is one demo in a wider portfolio of interactive cryptography labs — see [systemslibrarian.github.io/crypto-lab](https://systemslibrarian.github.io/crypto-lab/) for the rest, including the five PQC families overview, hybrid TLS, harvest-now-decrypt-later timelines, and deep-dives on individual schemes.
-
 ---
 
-"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31
+*One of 60+ browser demos in the [Crypto Lab](https://crypto-lab.systemslibrarian.dev/) suite.*
+
+*"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31*
