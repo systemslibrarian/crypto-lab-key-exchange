@@ -1618,6 +1618,13 @@ function renderFooter(): HTMLElement {
 				<p class="panel-copy">Educational use only. Tiny parameters by design — they exist so the math is visible and the discrete-log break can run in milliseconds. Use a vetted library (BoringSSL, OpenSSL, liboqs, libsodium, BouncyCastle) for production.</p>
 			</div>
 		</div>
+		<p class="footer-related">Related demos:
+			<a href="https://systemslibrarian.github.io/crypto-lab-curve-lens/" target="_blank" rel="noopener">crypto-lab-curve-lens</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-hybrid-wire/" target="_blank" rel="noopener">crypto-lab-hybrid-wire</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-pq-tls-handshake/" target="_blank" rel="noopener">crypto-lab-pq-tls-handshake</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-x3dh-wire/" target="_blank" rel="noopener">crypto-lab-x3dh-wire</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-noise-pipe/" target="_blank" rel="noopener">crypto-lab-noise-pipe</a>
+		</p>
 		<p class="scripture">"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31</p>
 	`;
 	return footer;
