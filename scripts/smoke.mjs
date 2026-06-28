@@ -33,14 +33,15 @@ async function run(label, deviceOpts) {
 	const skip = await page.locator('a.skip-link').first().textContent();
 	assert(skip?.trim() === 'Skip to content', 'skip link present');
 
-	const themeBtn = page.locator('#theme-toggle');
+	// The shared crypto-lab header hides the lab's own #theme-toggle and provides
+	// the visible #cl-theme-toggle; both drive documentElement[data-theme].
+	const themeBtn = page.locator('#cl-theme-toggle');
 	await themeBtn.waitFor();
-	const initLabel = await themeBtn.getAttribute('aria-label');
+	const initTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
 	await themeBtn.click();
-	const afterLabel = await themeBtn.getAttribute('aria-label');
-	assert(initLabel !== afterLabel, `theme toggle flips aria-label (${initLabel} → ${afterLabel})`);
-	const theme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-	assert(theme === 'light' || theme === 'dark', `data-theme set (${theme})`);
+	const afterTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+	assert(initTheme !== afterTheme, `theme toggle flips data-theme (${initTheme} → ${afterTheme})`);
+	assert(afterTheme === 'light' || afterTheme === 'dark', `data-theme set (${afterTheme})`);
 	await themeBtn.click(); // restore
 
 	const tabs = page.locator('[role="tab"]');
