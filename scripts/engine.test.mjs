@@ -17,12 +17,15 @@ import {
 	ecMul,
 	ecdh,
 	hybridCombine,
+	hybridHandshake,
 	isOnCurve,
 	mlkemEncapsulateDemo,
 	modInverse,
 	modPow,
 	pointToString,
 } from '../src/engine.ts';
+
+import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
 
 test('modPow: known values', () => {
 	assert.equal(modPow(5, 0, 23), 1);
@@ -149,20 +152,66 @@ test('pointToString: infinity and finite formatting', () => {
 	assert.equal(pointToString({ x: 5, y: 1 }), '(5, 1)');
 });
 
-test('mlkemEncapsulateDemo: shape, hex length, internal consistency', async () => {
+// ---- Real ML-KEM-768 (FIPS 203) ------------------------------------------
+
+test('mlkemEncapsulateDemo: real FIPS 203 sizes and round-trip', async () => {
 	const r = await mlkemEncapsulateDemo();
-	assert.equal(r.bobSecret.length, 64); // 32 bytes hex
+	// ML-KEM-768 (FIPS 203, Table 3): ek=1184, ct=1088, shared secret=32.
+	assert.equal(r.publicKeyLen, 1184, 'ML-KEM-768 encapsulation key is 1184 bytes');
+	assert.equal(r.ciphertextLen, 1088, 'ML-KEM-768 ciphertext is 1088 bytes');
+	assert.equal(r.bobSecret.length, 64, '32-byte secret as hex'); // 32 bytes hex
 	assert.equal(r.aliceSecret.length, 64);
-	assert.equal(r.ciphertext.length, 96); // 48 bytes hex
-	assert.equal(r.bobSecret, r.aliceSecret, 'demo flow should agree');
+	assert.equal(r.ciphertext.length, 1088 * 2, 'ciphertext hex length matches 1088 bytes');
+	assert.equal(r.bobSecret, r.aliceSecret, 'honest run: Alice recovers Bob’s secret');
 	assert.equal(r.agree, true);
 	assert.match(r.bobSecret, /^[0-9a-f]+$/);
 });
 
+test('mlkemEncapsulateDemo: a flipped ciphertext bit does NOT yield Bob’s secret', async () => {
+	// FIPS 203 implicit rejection: decapsulating a tampered ciphertext gives a
+	// pseudorandom secret that differs from the real one. This is the property
+	// that makes a forged ciphertext useless — a flow model of random bytes
+	// could never demonstrate it.
+	const r = await mlkemEncapsulateDemo();
+	assert.equal(r.tamperRejected, true, 'tampered ciphertext must not reproduce Bob’s secret');
+	assert.notEqual(r.tamperedSecret, r.bobSecret);
+	assert.equal(r.tamperedSecret.length, 64);
+});
+
+test('mlkemEncapsulateDemo: fresh randomness each call (not a fixed constant)', async () => {
+	const r1 = await mlkemEncapsulateDemo();
+	const r2 = await mlkemEncapsulateDemo();
+	assert.notEqual(r1.bobSecret, r2.bobSecret, 'two encapsulations should differ');
+	assert.notEqual(r1.ciphertext, r2.ciphertext);
+});
+
+test('ML-KEM-768 KAT: decapsulate is the inverse of encapsulate for a fixed key', () => {
+	// Property/round-trip vector: for a freshly generated key pair, encapsulate
+	// then decapsulate must recover exactly the encapsulated shared secret.
+	for (let i = 0; i < 20; i++) {
+		const { publicKey, secretKey } = ml_kem768.keygen();
+		const { cipherText, sharedSecret } = ml_kem768.encapsulate(publicKey);
+		const recovered = ml_kem768.decapsulate(cipherText, secretKey);
+		assert.equal(recovered.length, 32);
+		assert.deepEqual(Array.from(recovered), Array.from(sharedSecret));
+	}
+});
+
+test('ML-KEM-768: decapsulating with the WRONG key rejects (implicit rejection)', () => {
+	const { publicKey } = ml_kem768.keygen();
+	const { cipherText, sharedSecret } = ml_kem768.encapsulate(publicKey);
+	const other = ml_kem768.keygen();
+	const recovered = ml_kem768.decapsulate(cipherText, other.secretKey);
+	// A different decapsulation key must not recover the encapsulated secret.
+	assert.notDeepEqual(Array.from(recovered), Array.from(sharedSecret));
+});
+
+// ---- Hybrid combine (HKDF over fixed-width DH ‖ real KEM secret) ----------
+
 test('hybridCombine: deterministic for fixed inputs, 64-hex-char output', async () => {
 	const a = await hybridCombine(2, 'aa'.repeat(32));
 	const b = await hybridCombine(2, 'aa'.repeat(32));
-	assert.equal(a.length, 64); // SHA-256 = 32 bytes
+	assert.equal(a.length, 64); // HKDF-SHA256 -> 32 bytes
 	assert.equal(a, b, 'hybrid combine must be deterministic');
 	assert.match(a, /^[0-9a-f]+$/);
 });
@@ -173,4 +222,28 @@ test('hybridCombine: different inputs produce different outputs', async () => {
 	const c = await hybridCombine(2, 'bb'.repeat(32));
 	assert.notEqual(a, b);
 	assert.notEqual(a, c);
+});
+
+test('hybridCombine: fixed-width DH encoding avoids concatenation ambiguity', async () => {
+	// With plain string concatenation, dh=1,kem="23..." and dh=12,kem="3..."
+	// could collide if the KEM half absorbs a digit. Fixed 4-byte encoding of
+	// the DH value keeps the two fields unambiguous, so distinct DH values with
+	// the same KEM half always produce distinct session keys.
+	const k = '11'.repeat(32);
+	const s1 = await hybridCombine(1, k);
+	const s12 = await hybridCombine(12, k);
+	const s123 = await hybridCombine(123, k);
+	assert.notEqual(s1, s12);
+	assert.notEqual(s12, s123);
+	assert.notEqual(s1, s123);
+});
+
+test('hybridHandshake: real X25519 + real ML-KEM-768 -> both ends derive the same key', async () => {
+	const r = await hybridHandshake();
+	assert.equal(r.x25519SharedLen, 32, 'X25519 shared secret is 32 bytes');
+	assert.equal(r.mlkemSharedLen, 32, 'ML-KEM-768 shared secret is 32 bytes');
+	assert.equal(r.aliceSessionKey.length, 64);
+	assert.equal(r.bobSessionKey.length, 64);
+	assert.equal(r.agree, true, 'Alice and Bob must derive identical session keys');
+	assert.equal(r.aliceSessionKey, r.bobSessionKey);
 });

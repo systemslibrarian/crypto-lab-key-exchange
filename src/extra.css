@@ -903,6 +903,48 @@
   color: var(--panel-strong);
 }
 
+/* "Real crypto" variant of the banner: positive, not a warning. The body
+   text stays on the standard panel colour (var(--text)) so its contrast is
+   the same as ordinary body copy; only the pill and border are recoloured. */
+.toy-banner:has(.toy-banner-tag--real) {
+  border-style: solid;
+  border-color: var(--accent-4);
+  background-color: rgba(19, 111, 99, 0.1);
+  color: var(--ink);
+}
+
+[data-theme="dark"] .toy-banner:has(.toy-banner-tag--real) {
+  background-color: rgba(61, 217, 196, 0.12);
+}
+
+.toy-banner-tag--real {
+  background-color: var(--accent-4);
+  color: var(--panel-strong);
+}
+
+.kem-tamper {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+/* Status text that lives ON the dark mono-block background (var(--mono-block-bg)
+   is dark #1d1824 / #0e0b14 in both themes). The theme-driven
+   scenario-status--valid colour is a dark teal that fails contrast there in the
+   light theme, so on-block statuses use bright, theme-independent colours that
+   clear WCAG AA against the dark code block in both themes. */
+.mono-status {
+  font-weight: 700;
+}
+
+.mono-status--ok {
+  color: #3dd9c4;
+}
+
+.mono-status--bad {
+  color: #f06868;
+}
+
 /* Production decision card */
 .decision-card {
   border-color: var(--accent);

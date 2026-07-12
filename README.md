@@ -2,7 +2,7 @@
 
 ## What It Is
 
-An interactive walk through five generations of key exchange: Diffie–Hellman (1976), ECDH (1985), X25519 (2006), ML-KEM (FIPS 203, 2024), and hybrid X25519+ML-KEM (2024). The point is that they're not five different problems — they're one problem ("agree on a shared secret over an open channel") solved in five different groups, with the last move stepping off the classical-group story entirely. The first three rely on the hardness of the discrete-log problem in Z_p* or on an elliptic curve, all of which Shor's algorithm breaks in polynomial time on a fault-tolerant quantum computer. ML-KEM rests on Module-LWE over polynomial rings — a lattice problem Shor doesn't touch — and hybrid is the bridge: derive a session key from both halves so neither failing alone breaks the channel. Every primitive in the demo is implemented from scratch in TypeScript with deliberately tiny parameters so the math is visible. The discrete-log attack on Z_p* is real and runs in milliseconds; the ML-KEM step is a *flow model* (not real Module-LWE) and is labelled as such throughout.
+An interactive walk through five generations of key exchange: Diffie–Hellman (1976), ECDH (1985), X25519 (2006), ML-KEM (FIPS 203, 2024), and hybrid X25519+ML-KEM (2024). The point is that they're not five different problems — they're one problem ("agree on a shared secret over an open channel") solved in five different groups, with the last move stepping off the classical-group story entirely. The first three rely on the hardness of the discrete-log problem in Z_p* or on an elliptic curve, all of which Shor's algorithm breaks in polynomial time on a fault-tolerant quantum computer. ML-KEM rests on Module-LWE over polynomial rings — a lattice problem Shor doesn't touch — and hybrid is the bridge: derive a session key from both halves so neither failing alone breaks the channel. The DH and ECDH primitives are implemented from scratch in TypeScript with deliberately tiny parameters so the math is visible; the discrete-log attack on Z_p* is real and runs in milliseconds. The ML-KEM step is **real ML-KEM-768 (FIPS 203)** from [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) — production-grade parameters, full Module-LWE, NTT, and compression — and the hybrid combine mixes an actual X25519 secret with the ML-KEM secret through HKDF, matching the shape of the production X25519MLKEM768 combiner.
 
 ## When to Use It
 
@@ -16,7 +16,7 @@ An interactive walk through five generations of key exchange: Diffie–Hellman (
 
 **[systemslibrarian.github.io/crypto-lab-key-exchange](https://systemslibrarian.github.io/crypto-lab-key-exchange/)**
 
-The page is one long scrollable lesson with a sticky scroll-spy nav at the top. Inside: a production decision card, the five-generation tablist, live DH and MitM playgrounds, ECDH with a plot of every point on the demo curve, the KEM flow model, the hybrid combine, an all-five comparison table, sizes and history sections, a roster of real production deployments, interactive Shor classical order-finding, a Module-LWE visualization, a closing "remember three things" synthesis, and a references-and-glossary panel. Number keys `1`–`9` and `0` jump between sections; `?` opens the keyboard-shortcut help. Every interactive section carries an explicit threat-model chip strip (what it protects against, what it does not) and a visible "toy parameters" warning.
+The page is one long scrollable lesson with a sticky scroll-spy nav at the top. Inside: a production decision card, the five-generation tablist, live DH and MitM playgrounds, ECDH with a plot of every point on the demo curve, a live real ML-KEM-768 encapsulation (including a forge check that flips a ciphertext bit), the hybrid combine, an all-five comparison table, sizes and history sections, a roster of real production deployments, interactive Shor classical order-finding, a Module-LWE visualization, a closing "remember three things" synthesis, and a references-and-glossary panel. Number keys `1`–`9` and `0` jump between sections; `?` opens the keyboard-shortcut help. Every interactive section carries an explicit threat-model chip strip (what it protects against, what it does not) and a visible "toy parameters" warning.
 
 ## What Can Go Wrong
 
@@ -81,7 +81,7 @@ What is tested, what is intentionally not tested, and how to run each:
 
 | Test | Command | What it covers |
 | --- | --- | --- |
-| Engine unit tests | `npm test` | `modPow`, `modInverse`, `diffieHellman`, `discreteLogAttack`, `isOnCurve`, `ecAdd`, `ecMul` (incl. agreement with iterated addition and `n·G = ∞`), `ecdh` agreement for every scalar pair on the demo curve, `pointToString`, `mlkemEncapsulateDemo` shape, `hybridCombine` determinism and length. Deterministic. |
+| Engine unit tests | `npm test` | `modPow`, `modInverse`, `diffieHellman`, `discreteLogAttack`, `isOnCurve`, `ecAdd`, `ecMul` (incl. agreement with iterated addition and `n·G = ∞`), `ecdh` agreement for every scalar pair on the demo curve, `pointToString`; **real ML-KEM-768** FIPS 203 sizes (1184/1088/32), encapsulate↔decapsulate round-trip, implicit rejection of a flipped-bit ciphertext and of the wrong decapsulation key; `hybridCombine` determinism, fixed-width DH encoding, and the full `hybridHandshake` (real X25519 + real ML-KEM-768) both-ends-agree check. Deterministic except for fresh keygen/encapsulation randomness (asserted on properties, not fixed bytes). |
 | Browser smoke | `npm run smoke` | Playwright/Chromium on three viewports (desktop 1280, iPhone 12, narrow 360×740). Exercises every interactive control end-to-end, the URL-hash deep-links, the keyboard shortcuts, the copy-to-clipboard chips, the EC curve plot, the MitM panel, the Shor cycle, and the Module-LWE matrices. Asserts no console errors and no horizontal overflow. |
 | Accessibility audit | `npm run axe` | axe-core WCAG 2.1 A/AA against six configurations (3 viewport widths × 2 themes). Currently zero violations. |
 | Full local CI pass | `npm run verify` | Runs `build` + `test` and then expects you to run `smoke` / `axe` against a `preview` server. (CI runs all of them automatically on every push and PR.) |
@@ -92,7 +92,8 @@ What is **not** tested, by design:
 - The visual appearance of the EC curve plot (only the count of finite points and the highlight classification is asserted).
 - The exact text of every long-form explanation — that would freeze the prose against intentional editing.
 - Real-network behaviour. The page is fully static and client-side.
-- Real post-quantum cryptography. ML-KEM in the engine is a flow model (random opaque bytes, labelled as such throughout); the real cryptography belongs in a vetted library.
+
+The ML-KEM step is **not** simulated: it is real ML-KEM-768 (FIPS 203) from the vetted `@noble/post-quantum` library, and the hybrid combine mixes a real X25519 secret with the real ML-KEM secret via HKDF. The DH and ECDH panels remain deliberately toy-sized (so the discrete-log break can run in your browser) and are labelled as such; those toy parameters are the only "not for production" primitives in the demo.
 
 CI runs `build + test + smoke + axe` on every push to `main` and on every PR (`.github/workflows/ci.yml`). The deploy workflow (`.github/workflows/deploy.yml`) only fires on push to `main`.
 

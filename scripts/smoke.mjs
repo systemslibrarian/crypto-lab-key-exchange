@@ -83,7 +83,7 @@ async function run(label, deviceOpts) {
 
 	// Hybrid combine — click and wait for session line
 	await page.click('#hybrid-run');
-	await page.waitForFunction(() => /SHA-256/.test(document.querySelector('#hybrid-output')?.textContent ?? ''));
+	await page.waitForFunction(() => /HKDF/.test(document.querySelector('#hybrid-output')?.textContent ?? ''));
 	assert(true, 'hybrid combine renders session key');
 
 	// MitM section

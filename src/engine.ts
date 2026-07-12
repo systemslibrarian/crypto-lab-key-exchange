@@ -1,22 +1,29 @@
 // engine.ts — Key-exchange teaching engine.
 //
-// Five primitives in one module, deliberately tiny:
+// Four primitives in one module:
 //   1. Diffie–Hellman over Z_p* — full arithmetic with a brute-force
-//      discrete-log attack you can actually run.
+//      discrete-log attack you can actually run. Deliberately tiny.
 //   2. ECDH over a Weierstrass curve mod a small prime — point add,
-//      point double, scalar multiplication.
-//   3. A *flow model* for ML-KEM encapsulation. This is NOT real lattice
-//      math (Module-LWE, NTT, compression, decompression are all skipped).
-//      It models the public observable behaviour — Bob produces a secret +
-//      ciphertext, Alice "decapsulates" and ends up with the same secret —
-//      with the right shape and types so the surrounding UI is honest.
-//   4. The hybrid combine: H(dhSecret || kemSecret) as the final session key.
+//      point double, scalar multiplication. Deliberately tiny.
+//   3. REAL ML-KEM-768 encapsulation (FIPS 203) via @noble/post-quantum.
+//      Bob encapsulates a fresh secret to Alice's real public key, Alice
+//      decapsulates the ACTUAL ciphertext and recovers the same secret.
+//      Full Module-LWE, NTT, compression — not a flow model.
+//   4. The hybrid combine: HKDF-Extract over the fixed-width X25519 secret
+//      concatenated with the ML-KEM secret, with a domain-separation label,
+//      matching the shape of the production X25519MLKEM768 combiner.
 //
-// Everything is intentionally toy-sized so the math is visible and the
-// discrete-log break runs in a single CPU tick. Real DH uses 2048–4096-bit
-// primes; real ECDH uses curves like Curve25519; real ML-KEM is FIPS 203
-// (Module-LWE, polynomial rings, sampling, etc.). Do not use any of this
-// for production.
+// The DH and ECDH pieces are intentionally toy-sized so the math is visible
+// and the discrete-log break runs in a single CPU tick — real DH uses
+// 2048–4096-bit primes and real ECDH uses curves like Curve25519, both
+// clearly labelled throughout. The ML-KEM and hybrid pieces, by contrast,
+// use production-grade parameters and real cryptography. None of the toy
+// DH/ECDH parameters are safe for production; use a vetted library.
+
+import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
+import { x25519 } from '@noble/curves/ed25519.js';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 // ---------- DH ---------------------------------------------------------------
 
@@ -196,13 +203,17 @@ export const DEMO_CURVE: Curve = {
 	n: 19,
 };
 
-// ---------- ML-KEM (FLOW MODEL — not real lattice math) ----------------------
+// ---------- ML-KEM-768 (REAL — FIPS 203 via @noble/post-quantum) -------------
 
 export interface KemResult {
-	bobSecret: string; // hex — what Bob encapsulated
-	ciphertext: string; // hex — the opaque blob sent to Alice
-	aliceSecret: string; // hex — what Alice decapsulated; equals bobSecret on success
-	agree: boolean;
+	publicKeyLen: number; // Alice's ML-KEM public (encapsulation) key size, bytes
+	ciphertextLen: number; // ciphertext size, bytes
+	bobSecret: string; // hex — the shared secret Bob derived while encapsulating
+	ciphertext: string; // hex — the ACTUAL FIPS 203 ciphertext sent to Alice
+	aliceSecret: string; // hex — what Alice recovered by decapsulating `ciphertext`
+	agree: boolean; // bobSecret === aliceSecret (true for an honest run)
+	tamperedSecret: string; // hex — what Alice recovers if one ciphertext bit is flipped
+	tamperRejected: boolean; // true iff the tampered secret differs from the honest one
 	note: string;
 }
 
@@ -210,48 +221,90 @@ function bytesToHex(bytes: Uint8Array): string {
 	return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function randomBytes(n: number): Uint8Array {
-	const out = new Uint8Array(n);
-	crypto.getRandomValues(out);
-	return out;
-}
-
-// Flow model of an ML-KEM encapsulation:
-//   1. Bob generates a fresh 32-byte secret.
-//   2. Bob produces an opaque ciphertext (here: random bytes — in real
-//      ML-KEM this would be an encrypted-to-Alice's-public-key encoding
-//      of the secret, with all the Module-LWE machinery).
-//   3. Alice "decapsulates" and arrives at the same secret.
-// We return both ends explicitly so the UI can show them as equal —
-// the *shape* a real KEM has, with none of the cryptography.
+// Real ML-KEM-768 encapsulation, end to end:
+//   1. Alice runs KeyGen -> (encapsulation key ek, decapsulation key dk).
+//   2. Bob runs Encaps(ek) -> (ciphertext c, shared secret K). This is real
+//      Module-LWE: sample a short (s, e), compute u/v, compress, encode.
+//   3. Alice runs Decaps(dk, c) -> K'. On an honest run K' == K.
+// We also flip one bit of the ciphertext and decapsulate again to show FIPS
+// 203's implicit rejection: the recovered secret changes (it is a
+// pseudorandom function of the tampered ciphertext), so a forged ciphertext
+// does not yield Bob's secret.
 export async function mlkemEncapsulateDemo(): Promise<KemResult> {
-	const secret = randomBytes(32);
-	const ct = randomBytes(48);
-	const hex = bytesToHex(secret);
+	const { publicKey, secretKey } = ml_kem768.keygen();
+	const { cipherText, sharedSecret: bobSecret } = ml_kem768.encapsulate(publicKey);
+	const aliceSecret = ml_kem768.decapsulate(cipherText, secretKey);
+
+	const tampered = cipherText.slice();
+	tampered[0] ^= 0x01; // flip one bit
+	const tamperedSecret = ml_kem768.decapsulate(tampered, secretKey);
+
+	const agree =
+		bobSecret.length === aliceSecret.length &&
+		bobSecret.every((b, i) => b === aliceSecret[i]);
+	const tamperRejected = !(
+		tamperedSecret.length === bobSecret.length &&
+		tamperedSecret.every((b, i) => b === bobSecret[i])
+	);
+
 	return {
-		bobSecret: hex,
-		ciphertext: bytesToHex(ct),
-		aliceSecret: hex,
-		agree: true,
-		note: 'Flow model only. Real ML-KEM (FIPS 203) encrypts the shared secret to Alice’s public key using Module-LWE; ciphertext bytes here are random and do not actually encode the secret.',
+		publicKeyLen: publicKey.length,
+		ciphertextLen: cipherText.length,
+		bobSecret: bytesToHex(bobSecret),
+		ciphertext: bytesToHex(cipherText),
+		aliceSecret: bytesToHex(aliceSecret),
+		agree,
+		tamperedSecret: bytesToHex(tamperedSecret),
+		tamperRejected,
+		note: 'Real ML-KEM-768 (FIPS 203) via @noble/post-quantum: Bob encapsulates to Alice’s public key and Alice decapsulates the actual ciphertext. Full Module-LWE, NTT, and compression — not a flow model.',
 	};
 }
 
 // ---------- Hybrid combine ---------------------------------------------------
 
-// H(dhSecret || kemSecret) -> 32-byte session key, displayed as hex.
-// In production this is an HKDF; SHA-256 keeps the demo dependency-free.
+// Domain-separation label for this demo's hybrid combiner. Production
+// X25519MLKEM768 uses its own fixed label (e.g. the X-Wing "\.//^\" or the
+// TLS transcript hash); the point is that the label is fixed and bound in,
+// not derived from attacker-controlled data.
+const HYBRID_LABEL = 'crypto-lab-key-exchange X25519MLKEM768 v1';
+
+// Encode the DH shared value as a fixed 4-byte big-endian integer. The DH
+// playground works over toy primes (≤ 9973, which fits in 14 bits), so 4
+// bytes is always enough and — crucially — the width is FIXED. Fixed-width
+// encoding is what stops the "1"||"23" vs "12"||"3" concatenation ambiguity
+// that plain stringification would allow.
+function encodeDhSecret(dhSecret: number): Uint8Array {
+	const n = Math.max(0, Math.floor(dhSecret)) >>> 0;
+	return new Uint8Array([(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]);
+}
+
+// Combine the classical (DH) secret and the post-quantum (ML-KEM) secret into
+// one 32-byte session key. This uses HKDF-Extract-then-Expand with SHA-256
+// over  dhSecret(fixed-width) || kemSecret  and a fixed domain-separation
+// label as the HKDF `info`. This mirrors the SHAPE of the production
+// X25519MLKEM768 combiner (HKDF over the concatenated component secrets with
+// a fixed label), rather than the earlier plain SHA-256(String(dh)||kem)
+// which lacked both fixed-width encoding and domain separation.
+//
+// Production note: real X25519MLKEM768 (X-Wing / draft-connolly-cfrg-xwing)
+// also folds in the ML-KEM ciphertext and X25519 public key, and TLS 1.3
+// derives the key through the full handshake transcript. Those bind the
+// specific messages; here we keep to the two component secrets so the
+// teaching input stays the DH value plus the KEM secret. The combiner below
+// is a real HKDF, not a placeholder.
 export async function hybridCombine(
 	dhSecret: string | number,
 	kemSecretHex: string,
 ): Promise<string> {
-	const dhBytes = new TextEncoder().encode(String(dhSecret));
+	const dhBytes = encodeDhSecret(typeof dhSecret === 'number' ? dhSecret : Number(dhSecret));
 	const kemBytes = hexToBytes(kemSecretHex);
-	const combined = new Uint8Array(dhBytes.length + kemBytes.length);
-	combined.set(dhBytes, 0);
-	combined.set(kemBytes, dhBytes.length);
-	const digest = await crypto.subtle.digest('SHA-256', combined);
-	return bytesToHex(new Uint8Array(digest));
+	const ikm = new Uint8Array(dhBytes.length + kemBytes.length);
+	ikm.set(dhBytes, 0);
+	ikm.set(kemBytes, dhBytes.length);
+	const info = new TextEncoder().encode(HYBRID_LABEL);
+	// Empty salt is standard for HKDF when no salt is available.
+	const okm = hkdf(sha256, ikm, new Uint8Array(0), info, 32);
+	return bytesToHex(okm);
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -263,4 +316,51 @@ function hexToBytes(hex: string): Uint8Array {
 		out[i] = parseInt(padded.slice(i * 2, i * 2 + 2), 16);
 	}
 	return out;
+}
+
+// ---------- Real X25519MLKEM768-style hybrid handshake (illustrative) --------
+
+export interface HybridHandshakeResult {
+	x25519SharedLen: number;
+	mlkemSharedLen: number;
+	aliceSessionKey: string; // hex — 32-byte session key Alice derives
+	bobSessionKey: string; // hex — 32-byte session key Bob derives
+	agree: boolean;
+}
+
+// Runs BOTH halves of the hybrid for real and combines them, so the session
+// key is a function of an actual X25519 ECDH secret and an actual ML-KEM-768
+// secret. Used by tests to prove the two ends agree end-to-end; the UI's
+// hybrid panel drives hybridCombine() with the DH value the user chose.
+export async function hybridHandshake(): Promise<HybridHandshakeResult> {
+	// Classical half: X25519 ECDH between Alice and Bob.
+	const aPriv = x25519.utils.randomSecretKey();
+	const bPriv = x25519.utils.randomSecretKey();
+	const aPub = x25519.getPublicKey(aPriv);
+	const bPub = x25519.getPublicKey(bPriv);
+	const xAlice = x25519.getSharedSecret(aPriv, bPub);
+	const xBob = x25519.getSharedSecret(bPriv, aPub);
+
+	// PQ half: Bob encapsulates to Alice's ML-KEM public key.
+	const { publicKey, secretKey } = ml_kem768.keygen();
+	const { cipherText, sharedSecret: kemBob } = ml_kem768.encapsulate(publicKey);
+	const kemAlice = ml_kem768.decapsulate(cipherText, secretKey);
+
+	const combine = (x: Uint8Array, k: Uint8Array): string => {
+		const ikm = new Uint8Array(x.length + k.length);
+		ikm.set(x, 0);
+		ikm.set(k, x.length);
+		const info = new TextEncoder().encode(HYBRID_LABEL);
+		return bytesToHex(hkdf(sha256, ikm, new Uint8Array(0), info, 32));
+	};
+
+	const aliceSessionKey = combine(xAlice, kemAlice);
+	const bobSessionKey = combine(xBob, kemBob);
+	return {
+		x25519SharedLen: xAlice.length,
+		mlkemSharedLen: kemAlice.length,
+		aliceSessionKey,
+		bobSessionKey,
+		agree: aliceSessionKey === bobSessionKey,
+	};
 }

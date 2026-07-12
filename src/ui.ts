@@ -717,7 +717,7 @@ function renderEcdhResult(r: EcdhResult): string {
 	`;
 }
 
-// ---------- 5. KEM flow ------------------------------------------------------
+// ---------- 5. ML-KEM encapsulation (real FIPS 203) --------------------------
 
 interface SharedSecrets {
 	dh: number;
@@ -738,7 +738,10 @@ function renderKemSection(state: SharedSecrets): HTMLElement {
 			</div>
 		</div>
 		${threatBadges(['passive', 'quantum'], ['active'])}
-		${toyBanner('This is a flow model — random opaque bytes, not real Module-LWE. The shape (encapsulate / decapsulate) and the API are right; the cryptography is not. See § Module-LWE for the actual hard problem.')}
+		<div class="toy-banner" role="note">
+			<span class="toy-banner-tag toy-banner-tag--real">Real crypto</span>
+			<span class="toy-banner-body">This runs <strong>real ML-KEM-768 (FIPS 203)</strong> from <code>@noble/post-quantum</code> — full Module-LWE, NTT, and compression. Bob encapsulates to Alice’s actual public key; Alice decapsulates the actual ciphertext. Unlike the DH/ECDH panels above, these are production-grade parameters, not toy ones. See § Module-LWE for the underlying hard problem.</span>
+		</div>
 		<div class="reuse-grid">
 			<div class="panel-card">
 				<h3>DH / ECDH</h3>
@@ -789,14 +792,21 @@ function renderKemResult(r: KemResult): string {
 		<div class="kx-grid">
 			<div class="kx-side">
 				<p class="hero-metric-label">Bob (encapsulator)</p>
+				<p class="mono-inline">encaps to Alice’s public key (${r.publicKeyLen.toLocaleString()} B)</p>
 				<p class="mono-inline">secret = <strong>${shortHex(r.bobSecret)}</strong> ${copyChip(r.bobSecret, 'secret')}</p>
-				<p class="mono-inline">ciphertext → Alice = <strong>${shortHex(r.ciphertext)}</strong> ${copyChip(r.ciphertext, 'ciphertext')}</p>
+				<p class="mono-inline">ciphertext → Alice (${r.ciphertextLen.toLocaleString()} B) = <strong>${shortHex(r.ciphertext)}</strong> ${copyChip(r.ciphertext, 'ciphertext')}</p>
 			</div>
 			<div class="kx-side">
 				<p class="hero-metric-label">Alice (decapsulator)</p>
+				<p class="mono-inline">decaps the actual ciphertext</p>
 				<p class="mono-inline">recovered secret = <strong>${shortHex(r.aliceSecret)}</strong> ${copyChip(r.aliceSecret, 'secret')}</p>
-				<p class="mono-inline">agree: ${r.agree ? '✓' : '✗'}</p>
+				<p class="mono-inline mono-status ${r.agree ? 'mono-status--ok' : 'mono-status--bad'}">secrets agree: ${r.agree ? '✓' : '✗'}</p>
 			</div>
+		</div>
+		<div class="kx-side kem-tamper">
+			<p class="hero-metric-label">Forge check — flip one ciphertext bit</p>
+			<p class="mono-inline">Alice decapsulates the tampered ciphertext to a <em>different</em> secret: <strong>${shortHex(r.tamperedSecret)}</strong></p>
+			<p class="mono-inline mono-status ${r.tamperRejected ? 'mono-status--ok' : 'mono-status--bad'}">${r.tamperRejected ? '✓ Implicit rejection (FIPS 203): a forged ciphertext never yields Bob’s secret' : '✗ Tampered ciphertext produced Bob’s secret — this should not happen'}</p>
 		</div>
 		<p class="kx-footnote">${r.note}</p>
 	`;
@@ -878,10 +888,10 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 					<p class="mono-inline">kem = ${shortHex(kem)}</p>
 				</div>
 				<div class="kx-side">
-					<p class="hero-metric-label">Session key = SHA-256(dh ‖ kem)</p>
+					<p class="hero-metric-label">Session key = HKDF-SHA256(dh<sub>4B</sub> ‖ kem, info = label)</p>
 					<p class="mono-inline">${session} ${copyChip(session, 'session key')}</p>
 				</div>
-				<p class="kx-footnote">This is the bridge protocol in production today — X25519MLKEM768 in TLS 1.3, Apple iMessage PQ3, AWS KMS. Secure if either half holds.</p>
+				<p class="kx-footnote">The DH value is fixed-width encoded (4-byte big-endian) and mixed with the real ML-KEM-768 secret through HKDF-Extract-then-Expand with a fixed domain-separation label — the same <em>shape</em> as the production X25519MLKEM768 combiner. This is the bridge protocol in production today — X25519MLKEM768 in TLS 1.3, Apple iMessage PQ3, AWS KMS. Secure if either half holds.</p>
 			`;
 		} catch (err) {
 			output.innerHTML = `<p class="scenario-status--invalid">Combine failed: ${(err as Error).message}</p>`;
