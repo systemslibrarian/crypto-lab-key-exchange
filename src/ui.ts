@@ -118,36 +118,20 @@ function wireCopyButtons(root: HTMLElement): void {
 // ---------- 1. Hero ----------------------------------------------------------
 
 function renderHero(): HTMLElement {
-	const hero = el('section', 'hero-panel');
+	const hero = el('header', 'cl-hero');
+	// The #theme-toggle button is hidden by the shared topbar (its toggle
+	// replaces it) but must stay in the DOM so initThemeToggle() keeps working.
 	hero.innerHTML = `
 		<button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light mode">🌙</button>
-		<div class="hero-copy">
-			<p class="eyebrow">Key Exchange · Evolution</p>
-			<h1>Key Exchange</h1>
-			<p class="hero-text">
-				One problem — agree on a shared secret over an open channel — has been solved five
-				different ways in fifty years. Diffie–Hellman, ECDH, and X25519 are the same idea in
-				progressively stronger groups; ML-KEM is a genuinely different mechanism built for a
-				post-quantum world; and hybrid X25519+ML-KEM is the bridge the industry is crossing
-				right now.
-			</p>
-			<details class="why-details">
-				<summary>Why does this keep changing?</summary>
-				<p>
-					DH → ECDH → X25519 is one continuous line: the same exponentiation idea, just moved
-					into a smaller, faster, less back-door-suspicious group each time. The math is the
-					same — and so is the weakness, because Shor’s algorithm breaks discrete logs in any
-					abelian group. ML-KEM steps off that line entirely: a Key Encapsulation Mechanism
-					over polynomial rings whose security rests on Module-LWE, which Shor doesn’t touch.
-					Hybrid combines both so neither half failing breaks the channel.
-				</p>
-			</details>
+		<div class="cl-hero-main">
+			<h1 class="cl-hero-title">Key Exchange</h1>
+			<p class="cl-hero-sub">DH · ECDH · X25519 · ML-KEM · Hybrid</p>
+			<p class="cl-hero-desc">Walk the five generations of agreeing on a shared secret over an open channel — run live DH and ECDH, break discrete log on toy parameters, and trace ML-KEM encapsulation and the hybrid X25519+ML-KEM combine.</p>
 		</div>
-		<div class="hero-metric-card">
-			<p class="hero-metric-label">At a glance</p>
-			<p class="hero-metric-value">5 generations · 1976 → 2024</p>
-			<p class="hero-metric-note">Three of the five are broken by a sufficiently large quantum computer. The other two — ML-KEM and hybrid X25519+ML-KEM — are what production deployments are migrating to today.</p>
-		</div>
+		<aside class="cl-hero-why" aria-label="Why it matters">
+			<span class="cl-hero-why-label">WHY IT MATTERS</span>
+			<p class="cl-hero-why-text">The post-quantum move isn't a bigger key — it's a different mechanism. Shor's algorithm breaks discrete-log key agreement in any group, so ML-KEM's lattice hardness, wrapped in a hybrid, is what protects data being harvested today for decryption later.</p>
+		</aside>
 	`;
 	return hero;
 }
