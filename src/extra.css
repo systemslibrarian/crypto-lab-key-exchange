@@ -192,6 +192,74 @@
   font-family: var(--mono);
 }
 
+/* "Why do they match?" commutativity box in the DH panel. Renders the two
+   exponent towers collapsing to the same g^(a·b). The a-exponent and
+   b-exponent are colour + bold coded (never colour alone) so the learner can
+   track which secret is which as the towers commute. */
+.dh-why {
+  margin: 14px 0 0;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 14px;
+  background-color: var(--panel-strong);
+}
+
+.dh-why-title {
+  margin: 0 0 10px;
+  font-weight: 700;
+  color: var(--ink-strong);
+}
+
+.dh-why-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dh-why-row,
+.dh-why-collapse {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--ink-strong);
+}
+
+.dh-why-math {
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.dh-why-who {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  margin-bottom: 2px;
+}
+
+.dh-why-collapse {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+/* Exponent-tracking colours. Bold + colour so it never relies on hue alone. */
+.expo-a {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.expo-b {
+  color: var(--accent-2);
+  font-weight: 700;
+}
+
+.dh-why-foot {
+  margin: 12px 0 0;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
 .kx-curve {
   margin: 14px 0 0;
   padding: 12px 16px;
@@ -330,6 +398,66 @@
   font-size: 0.85rem;
   color: var(--ink-soft);
   line-height: 1.5;
+}
+
+/* Scalar-multiplication walk overlay (G -> 2G -> 3G -> ...). */
+.ec-walk-controls {
+  margin: 14px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 16px;
+}
+
+.ec-walk-hint {
+  margin: 0;
+  flex: 1 1 16rem;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.ec-walk-step {
+  margin: 8px 0 0;
+  min-height: 1.4em;
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--ink-strong);
+}
+
+.ec-walk-seg {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+/* Node fill is the yellow accent (light in BOTH themes) so the dark number
+   text sits at AA contrast either way; the current head hop is ringed. */
+.ec-walk-node {
+  fill: var(--accent-3);
+  stroke: var(--ink-strong);
+  stroke-width: 1.25;
+}
+
+.ec-walk-node--head {
+  stroke-width: 2.5;
+  stroke: var(--accent-2);
+}
+
+.ec-walk-num {
+  fill: #15121a;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-walk-seg,
+  .ec-walk-node {
+    transition: none;
+  }
 }
 
 .ec-legend {
@@ -945,9 +1073,88 @@
   color: #f06868;
 }
 
+/* Beginner on-ramp banner */
+.beginner-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  margin-bottom: 18px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent-4);
+  border-radius: 14px;
+  background-color: color-mix(in oklab, var(--accent-4) 8%, var(--panel-strong));
+}
+
+.beginner-banner-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-4);
+}
+
+.beginner-banner-text {
+  margin: 0;
+  flex: 1 1 16rem;
+  line-height: 1.6;
+  color: var(--ink-strong);
+}
+
+.beginner-banner-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
 /* Production decision card */
 .decision-card {
   border-color: var(--accent);
+}
+
+.decision-details > .decision-grid {
+  margin-top: 16px;
+}
+
+.decision-summary {
+  cursor: pointer;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.decision-summary::-webkit-details-marker {
+  display: none;
+}
+
+.decision-summary::after {
+  content: '▸ show';
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.decision-details[open] .decision-summary::after {
+  content: '▾ hide';
+}
+
+.decision-summary-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ink-strong);
+}
+
+.decision-summary-hint {
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.decision-summary:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 .decision-grid {
@@ -1084,6 +1291,92 @@
   min-width: 480px;
 }
 
+/* Shor "three registers" periodicity + spectrum visualization. */
+.shor-viz-wrap:not(:empty) {
+  margin-top: 18px;
+}
+
+.shor-viz-note {
+  margin: 18px 0 0;
+  padding: 12px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.shor-viz-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.shor-viz-head h3 {
+  margin: 0;
+}
+
+.shor-viz-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #15121a;
+  background-color: var(--accent-3);
+}
+
+.shor-viz-lede {
+  margin-top: 8px;
+}
+
+.shor-viz-figure {
+  margin: 14px 0 0;
+}
+
+.shor-viz-cap {
+  margin: 0 0 4px;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.shor-bar {
+  fill: var(--accent);
+  opacity: 0.55;
+}
+
+.shor-bar--period {
+  opacity: 0.95;
+}
+
+.shor-bar--spec {
+  fill: var(--ink-soft);
+  opacity: 0.5;
+}
+
+.shor-bar--peak {
+  fill: var(--accent-3);
+  opacity: 1;
+}
+
+.shor-period-rule {
+  stroke: var(--accent-2);
+  stroke-width: 3;
+}
+
+.shor-viz-tick {
+  fill: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.shor-viz-foot {
+  margin-top: 12px;
+}
+
 .kx-spans-both {
   align-self: end;
 }
@@ -1120,6 +1413,154 @@
   text-align: center;
   background-color: var(--panel);
   color: var(--ink-strong);
+}
+
+/* Module-LWE "try to break it" controls and solve output. */
+.mlwe-controls {
+  margin-top: 16px;
+}
+
+.mlwe-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.92rem;
+  color: var(--ink-strong);
+}
+
+.mlwe-toggle input {
+  width: auto;
+  min-width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.mlwe-matrix--off {
+  opacity: 0.85;
+  border-style: dashed;
+}
+
+.mono-cell--off {
+  color: var(--ink-soft);
+}
+
+#mlwe-attack:not(:empty) {
+  margin-top: 14px;
+}
+
+.mlwe-solve-compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 12px 0;
+}
+
+.mlwe-solve-compare .mlwe-matrix {
+  flex: 1 1 12rem;
+  background-color: transparent;
+}
+
+/* Per-cell hit/miss: strong border + inline ✓/✗ mark (never colour alone). */
+.mlwe-cell--hit {
+  border: 2px solid var(--accent-4) !important;
+}
+
+.mlwe-cell--miss {
+  border: 2px solid var(--accent-2) !important;
+}
+
+.mlwe-cell-mark {
+  display: inline-block;
+  margin-left: 4px;
+  font-weight: 700;
+}
+
+.mlwe-cell--hit .mlwe-cell-mark {
+  color: var(--accent-4);
+}
+
+.mlwe-cell--miss .mlwe-cell-mark {
+  color: var(--accent-2);
+}
+
+.mlwe-attack-card .kx-footnote {
+  color: var(--warning-fg);
+}
+
+/* Hybrid cross-section provenance chips (which half came from where). */
+.hybrid-halves {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.hybrid-half {
+  flex: 1 1 12rem;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background-color: var(--panel-strong);
+}
+
+.hybrid-half--dh {
+  border-left: 4px solid var(--accent);
+}
+
+.hybrid-half--kem {
+  border-left: 4px solid var(--accent-4);
+}
+
+.hybrid-half--out {
+  border-left: 4px solid var(--accent-3);
+}
+
+.hybrid-half-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.hybrid-half-src {
+  margin: 4px 0 8px;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.hybrid-half-val {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background-color: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.hybrid-half-val--set {
+  color: var(--mono-block-fg);
+}
+
+.hybrid-arrow {
+  align-self: center;
+  font-size: 1.3rem;
+  color: var(--ink-soft);
+  flex: 0 0 auto;
+}
+
+.hybrid-jump-link,
+.beginner-banner-link,
+.hybrid-half a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
 }
 
 /* Hybrid security argument */

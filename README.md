@@ -16,7 +16,7 @@ An interactive walk through five generations of key exchange: Diffie–Hellman (
 
 **[systemslibrarian.github.io/crypto-lab-key-exchange](https://systemslibrarian.github.io/crypto-lab-key-exchange/)**
 
-The page is one long scrollable lesson with a sticky scroll-spy nav at the top. Inside: a production decision card, the five-generation tablist, live DH and MitM playgrounds, ECDH with a plot of every point on the demo curve, a live real ML-KEM-768 encapsulation (including a forge check that flips a ciphertext bit), the hybrid combine, an all-five comparison table, sizes and history sections, a roster of real production deployments, interactive Shor classical order-finding, a Module-LWE visualization, a closing "remember three things" synthesis, and a references-and-glossary panel. Number keys `1`–`9` and `0` jump between sections; `?` opens the keyboard-shortcut help. Every interactive section carries an explicit threat-model chip strip (what it protects against, what it does not) and a visible "toy parameters" warning.
+The page is one long scrollable lesson with a sticky scroll-spy nav at the top. A **"New here?" banner** points a first-timer straight at the DH playground, and the engineer-facing production decision card is tucked behind a "for engineers" disclosure so a newcomer meets arithmetic before jargon. Inside: the five-generation tablist; a live DH playground whose **"why do they match?" panel** renders the two exponent towers `(g^a)^b` and `(g^b)^a` collapsing to the same `g^(ab)` so the commutativity is *shown*, not asserted; a MitM playground; ECDH with a plot of every point on the demo curve plus a **step-by-step scalar-multiplication walk** (`G → 2G → 3G → … → a·G`) that lights up the numbered hops so the random-looking walk behind ECDLP is visible; a live real ML-KEM-768 encapsulation (including a forge check that flips a ciphertext bit); the hybrid combine with **live provenance chips** showing which half came from which section; an all-five comparison table; sizes and history sections; a roster of real production deployments; interactive Shor classical order-finding backed by a **"Shor in three registers" visualization** (the real periodic `a^x mod N` and the real |DFT| of that window peaking at multiples of `1/r`, labelled as the classical stand-in for the quantum step); a Module-LWE panel where you can **flip the noise `e` on and off and run real Gaussian elimination** — it recovers the secret exactly with noise off and lands on a wrong, non-short vector with noise on; a closing "remember three things" synthesis; and a references-and-glossary panel. Number keys `1`–`9` and `0` jump between sections; `?` opens the keyboard-shortcut help. Every interactive section carries an explicit threat-model chip strip (what it protects against, what it does not) and a visible "toy parameters" warning.
 
 ## What Can Go Wrong
 
@@ -61,7 +61,7 @@ If you have **5 minutes** — the time it takes a manager to skim:
 If you have **15 minutes** — a brown-bag walk-through:
 1. Production decision card
 2. Five-generation tablist (click each chip, read the mechanic and threat)
-3. DH playground — change `a`, watch both ends agree
+3. DH playground — change `a`, watch both ends agree, then read the "why do they match?" panel to see the exponents commute to `g^(ab)`
 4. "Break it" — recover Alice's exponent and read the scaling table
 5. MitM panel — see Alice and Bob end with mismatched secrets
 6. KEM section — note the *shape* change vs DH
@@ -70,9 +70,9 @@ If you have **15 minutes** — a brown-bag walk-through:
 
 If you have **30 minutes** — a class or onboarding session:
 1. Full top-to-bottom in nav order
-2. Pause on ECDH for the point plot and the Curve25519 contrast table
-3. Pause on Shor for the order-finding cycle and resource estimates
-4. Pause on Module-LWE for the `b = A·s + e` matrix layout
+2. Pause on ECDH for the point plot, the "walk a·G one hop at a time" animation, and the Curve25519 contrast table
+3. Pause on Shor for the order-finding cycle, the "Shor in three registers" periodicity/spectrum visualization, and the resource estimates
+4. Pause on Module-LWE for the `b = A·s + e` matrix layout, then flip the noise off/on and run the solver to feel why the noise is the whole game
 5. End on References & glossary — every claim has a stable link
 
 ## Validation contract

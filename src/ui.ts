@@ -9,8 +9,10 @@ import {
 	DEMO_CURVE,
 	diffieHellman,
 	discreteLogAttack,
+	ecAdd,
 	ecdh,
 	hybridCombine,
+	INFINITY,
 	isOnCurve,
 	mlkemEncapsulateDemo,
 	modPow,
@@ -299,6 +301,9 @@ function renderDhPlayground(): HTMLElement {
 		const r = diffieHellman(p, g, a, b);
 		output.innerHTML = renderDhResult(r);
 		attackOut.innerHTML = '';
+		// Let the hybrid section refresh its classical-half provenance chip
+		// (and re-derive the session key) when the DH secret changes here.
+		window.dispatchEvent(new CustomEvent('kx-state-changed'));
 	}
 
 	[pInput, gInput, aInput, bInput].forEach((i) => i.addEventListener('input', rerun));
@@ -338,7 +343,46 @@ function renderDhResult(r: DhResult): string {
 				<p class="mono-inline">shared = A<sup>b</sup> mod p = ${r.A}<sup>${r.b}</sup> mod ${r.p} = <strong>${r.sharedFromBob}</strong> ${copyChip(String(r.sharedFromBob), 'shared')}</p>
 			</div>
 		</div>
+		${renderDhWhyMatch(r)}
 		<p class="kx-status">${status}</p>
+	`;
+}
+
+// The single most important intuition in DH: WHY two people who never shared a
+// secret arrive at the same number. Neither exponentiation on its own explains
+// it — the reason is that the two exponent towers commute to the SAME g^(ab).
+// We render Alice's tower and Bob's tower side by side and collapse both to
+// g^(a·b), highlighting the exponents so the commutativity is the visible fact,
+// not the green checkmark below it.
+function renderDhWhyMatch(r: DhResult): string {
+	const ab = r.a * r.b;
+	// g^(ab) mod p, computed directly, must equal both shared values — this is
+	// the number both towers land on. Shown so the learner can verify by hand.
+	const gab = modPow(r.g, ab, r.p);
+	const agreeReal = gab === r.sharedFromAlice && gab === r.sharedFromBob;
+	return `
+		<div class="dh-why" role="note" aria-label="Why Alice and Bob compute the same secret">
+			<p class="dh-why-title">Why do they match? Follow the exponents.</p>
+			<div class="dh-why-rows">
+				<p class="dh-why-row">
+					<span class="dh-why-who">Alice takes Bob's B and raises it to <em>a</em>:</span>
+					<span class="dh-why-math">B<sup>a</sup> = (g<sup class="expo expo-b">b</sup>)<sup class="expo expo-a">a</sup> = g<sup class="expo"><span class="expo-b">b</span>·<span class="expo-a">a</span></sup></span>
+				</p>
+				<p class="dh-why-row">
+					<span class="dh-why-who">Bob takes Alice's A and raises it to <em>b</em>:</span>
+					<span class="dh-why-math">A<sup>b</sup> = (g<sup class="expo expo-a">a</sup>)<sup class="expo expo-b">b</sup> = g<sup class="expo"><span class="expo-a">a</span>·<span class="expo-b">b</span></sup></span>
+				</p>
+				<p class="dh-why-collapse">
+					<span class="dh-why-math">Multiplying exponents commutes: <span class="expo-a">${r.a}</span>·<span class="expo-b">${r.b}</span> = <span class="expo-b">${r.b}</span>·<span class="expo-a">${r.a}</span> = ${ab},
+					so both are <strong>g<sup class="expo">a·b</sup> = ${r.g}<sup>${ab}</sup> mod ${r.p} = ${gab}</strong>.</span>
+				</p>
+			</div>
+			<p class="dh-why-foot ${agreeReal ? 'scenario-status--valid' : 'scenario-status--invalid'}">
+				${agreeReal
+					? '✓ The shared secret is g^(a·b) — never sent on the wire, only computable by someone who knows a or b.'
+					: '✗ Inputs out of range for this identity — pick a, b in [1, p−1].'}
+			</p>
+		</div>
 	`;
 }
 
@@ -565,10 +609,15 @@ function renderEcdhPlayground(): HTMLElement {
 				<input type="number" id="ec-b" min="1" max="${c.n - 1}" value="9" />
 			</label>
 		</div>
+		<div class="ec-walk-controls">
+			<button id="ec-walk" class="tab-button" type="button">▶ Walk a·G one hop at a time</button>
+			<p class="ec-walk-hint" id="ec-walk-hint">Scalar multiplication <code>a·G</code> means adding <code>G</code> to itself <code>a</code> times: <code>G → 2G → 3G → …</code>. Watch the hops jump around the group — that unpredictable walk is what makes the discrete-log inversion hard.</p>
+		</div>
 		<div class="ec-grid">
 			<div id="ec-output" class="kx-output" aria-live="polite"></div>
 			<div class="ec-plot-wrap">
 				<div id="ec-plot" role="img" aria-label="Plot of all 18 points on the demo curve plus the point at infinity, with G, a·G, b·G, and the shared point highlighted"></div>
+				<p id="ec-walk-step" class="ec-walk-step" aria-live="polite"></p>
 				<ul class="ec-legend" aria-label="Point legend">
 					<li><span class="ec-dot ec-dot--curve"></span>Other curve points</li>
 					<li><span class="ec-dot ec-dot--g"></span>G = (5, 1)</li>
@@ -599,8 +648,36 @@ function renderEcdhPlayground(): HTMLElement {
 	const bInput = section.querySelector<HTMLInputElement>('#ec-b')!;
 	const output = section.querySelector<HTMLElement>('#ec-output')!;
 	const plot = section.querySelector<HTMLElement>('#ec-plot')!;
+	const walkBtn = section.querySelector<HTMLButtonElement>('#ec-walk')!;
+	const walkStep = section.querySelector<HTMLElement>('#ec-walk-step')!;
+
+	// Cancellation token so restarting or re-running clears a walk in flight.
+	let walkTimer: number | null = null;
+
+	function cancelWalk(): void {
+		if (walkTimer !== null) {
+			window.clearTimeout(walkTimer);
+			walkTimer = null;
+		}
+	}
+
+	// Build the sequence of partial points 1·G, 2·G, …, a·G by iterated
+	// addition (P_{k+1} = P_k + G) — the definition of scalar multiplication.
+	// This is the exact walk that makes ECDLP hard: each hop lands on a
+	// point that looks unrelated to the last.
+	function scalarWalk(a: number): ECPoint[] {
+		const seq: ECPoint[] = [];
+		let acc: ECPoint = INFINITY;
+		for (let k = 0; k < a; k++) {
+			acc = ecAdd(acc, c.G, c);
+			seq.push(acc);
+		}
+		return seq;
+	}
 
 	function rerun(): void {
+		cancelWalk();
+		walkStep.textContent = '';
 		const a = clampInt(aInput.value, 1, c.n - 1, 3);
 		const b = clampInt(bInput.value, 1, c.n - 1, 9);
 		const r = ecdh(c, a, b);
@@ -608,7 +685,51 @@ function renderEcdhPlayground(): HTMLElement {
 		plot.innerHTML = renderCurvePlot(c, r);
 	}
 
+	function runWalk(): void {
+		cancelWalk();
+		const a = clampInt(aInput.value, 1, c.n - 1, 3);
+		const b = clampInt(bInput.value, 1, c.n - 1, 9);
+		const r = ecdh(c, a, b);
+		const seq = scalarWalk(a);
+		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		walkBtn.disabled = true;
+		walkBtn.setAttribute('aria-busy', 'true');
+
+		const stepTo = (upto: number): void => {
+			// Redraw the plot with the walk path revealed up to `upto` hops.
+			plot.innerHTML = renderCurvePlot(c, r, seq, upto);
+			const pt = seq[upto - 1]!;
+			walkStep.textContent =
+				upto < a
+					? `Hop ${upto} of ${a}:  ${upto}·G = ${pointToString(pt)}`
+					: `Arrived: ${a}·G = A = ${pointToString(pt)}. From G you could not have guessed a = ${a} from where you landed — that is ECDLP.`;
+		};
+
+		if (reduced) {
+			// No animation: draw the full path at once, still numbered.
+			stepTo(a);
+			walkBtn.disabled = false;
+			walkBtn.removeAttribute('aria-busy');
+			return;
+		}
+
+		let i = 1;
+		const tick = (): void => {
+			stepTo(i);
+			if (i >= a) {
+				walkBtn.disabled = false;
+				walkBtn.removeAttribute('aria-busy');
+				walkTimer = null;
+				return;
+			}
+			i++;
+			walkTimer = window.setTimeout(tick, 650);
+		};
+		tick();
+	}
+
 	[aInput, bInput].forEach((i) => i.addEventListener('input', rerun));
+	walkBtn.addEventListener('click', runWalk);
 
 	rerun();
 	return section;
@@ -627,7 +748,12 @@ function enumerateCurvePoints(curve: Curve): ECPoint[] {
 	return points;
 }
 
-function renderCurvePlot(curve: Curve, r: EcdhResult): string {
+function renderCurvePlot(
+	curve: Curve,
+	r: EcdhResult,
+	walk?: ECPoint[],
+	upto = 0,
+): string {
 	const points = enumerateCurvePoints(curve);
 	const W = 320;
 	const H = 320;
@@ -668,10 +794,38 @@ function renderCurvePlot(curve: Curve, r: EcdhResult): string {
 		<text class="ec-infty" x="${W - pad + 4}" y="${pad - 8}" text-anchor="end">∞</text>
 	`;
 
+	// Scalar-multiplication walk overlay. When a walk is supplied we draw the
+	// path G -> 2G -> ... revealed up to `upto` hops: connecting segments plus
+	// a numbered marker on each visited point. Only finite points are drawn;
+	// a hop that lands on O (rare on this curve for a in [1, n-1]) is skipped
+	// visually but still counted in the label.
+	let walkOverlay = '';
+	if (walk && upto > 0) {
+		const revealed = walk.slice(0, upto).filter((p) => !p.infinity);
+		const segs = revealed
+			.map((pt, i) => {
+				if (i === 0) return '';
+				const prev = revealed[i - 1]!;
+				return `<line class="ec-walk-seg" x1="${sx(prev.x)}" y1="${sy(prev.y)}" x2="${sx(pt.x)}" y2="${sy(pt.y)}" />`;
+			})
+			.join('');
+		const markers = revealed
+			.map((pt, i) => {
+				const isLast = i === revealed.length - 1;
+				return `
+					<circle class="ec-walk-node${isLast ? ' ec-walk-node--head' : ''}" cx="${sx(pt.x)}" cy="${sy(pt.y)}" r="10" />
+					<text class="ec-walk-num" x="${sx(pt.x)}" y="${sy(pt.y) + 3.5}" text-anchor="middle">${i + 1}</text>
+				`;
+			})
+			.join('');
+		walkOverlay = `<g class="ec-walk-layer" aria-hidden="true">${segs}${markers}</g>`;
+	}
+
 	return `
 		<svg viewBox="0 0 ${W} ${H}" width="100%" role="presentation" focusable="false">
 			${axes}
 			${dots}
+			${walkOverlay}
 			${infinityMarker}
 		</svg>
 		<p class="ec-plot-caption">${points.length} finite points + O. Curve = <code>y² = x³ + ${curve.a}x + ${curve.b} (mod ${curve.p})</code>.</p>
@@ -817,6 +971,25 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 			</div>
 		</div>
 		${threatBadges(['passive', 'quantum', 'migration'], ['active'])}
+		<div class="hybrid-halves" aria-label="Where the two halves come from">
+			<div class="hybrid-half hybrid-half--dh">
+				<p class="hybrid-half-label">Classical half</p>
+				<p class="hybrid-half-src">DH shared secret · from § 2 Diffie–Hellman</p>
+				<p class="mono-inline hybrid-half-val" id="hybrid-dh-chip">—</p>
+			</div>
+			<div class="hybrid-arrow" aria-hidden="true">＋</div>
+			<div class="hybrid-half hybrid-half--kem">
+				<p class="hybrid-half-label">Post-quantum half</p>
+				<p class="hybrid-half-src">ML-KEM-768 secret · from § 5 KEM</p>
+				<p class="mono-inline hybrid-half-val" id="hybrid-kem-chip">—</p>
+			</div>
+			<div class="hybrid-arrow" aria-hidden="true">→</div>
+			<div class="hybrid-half hybrid-half--out">
+				<p class="hybrid-half-label">HKDF</p>
+				<p class="hybrid-half-src">session key · secure if either half holds</p>
+				<p class="mono-inline hybrid-half-val" id="hybrid-out-chip">—</p>
+			</div>
+		</div>
 		<div class="kx-actions">
 			<button id="hybrid-run" class="tab-button" type="button">Combine DH + KEM</button>
 		</div>
@@ -852,6 +1025,9 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 
 	const btn = section.querySelector<HTMLButtonElement>('#hybrid-run')!;
 	const output = section.querySelector<HTMLElement>('#hybrid-output')!;
+	const dhChip = section.querySelector<HTMLElement>('#hybrid-dh-chip')!;
+	const kemChip = section.querySelector<HTMLElement>('#hybrid-kem-chip')!;
+	const outChip = section.querySelector<HTMLElement>('#hybrid-out-chip')!;
 
 	async function run(): Promise<void> {
 		btn.disabled = true;
@@ -860,11 +1036,23 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 		try {
 			const dh = getDh();
 			const kem = state.kem;
+			// Keep the provenance chips live so it is obvious the two inputs are
+			// pulled from other sections — and which one is still missing.
+			dhChip.textContent = String(dh);
+			dhChip.classList.add('hybrid-half-val--set');
 			if (!kem) {
-				output.innerHTML = `<p class="scenario-status--pending">Run the KEM section first so the hybrid combine has a post-quantum half to mix in.</p>`;
+				kemChip.textContent = 'not yet run';
+				kemChip.classList.remove('hybrid-half-val--set');
+				outChip.textContent = 'waiting for KEM half';
+				outChip.classList.remove('hybrid-half-val--set');
+				output.innerHTML = `<p class="scenario-status--pending">The classical half (dh = ${dh}) is ready from § 2. The post-quantum half is missing — <a href="#kem" class="hybrid-jump-link">run the KEM section</a> and this combine auto-fires the moment it exists.</p>`;
 				return;
 			}
+			kemChip.textContent = shortHex(kem);
+			kemChip.classList.add('hybrid-half-val--set');
 			const session = await hybridCombine(dh, kem);
+			outChip.textContent = shortHex(session);
+			outChip.classList.add('hybrid-half-val--set');
 			output.innerHTML = `
 				<div class="kx-side">
 					<p class="hero-metric-label">Inputs</p>
@@ -890,9 +1078,15 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 		void run();
 	});
 
+	// Auto-run whenever either half changes: the KEM section fires this after
+	// encapsulating, and the DH playground fires it when its inputs change.
 	window.addEventListener('kx-state-changed', () => {
 		void run();
 	});
+
+	// Initial paint so the classical-half chip shows the current DH value and
+	// the pending banner explains what is still needed — no dead "—" state.
+	void run();
 
 	return section;
 }
@@ -906,13 +1100,17 @@ function renderDecisionCard(): HTMLElement {
 	const card = el('section', 'lab-section decision-card');
 	card.id = 'decision';
 	card.setAttribute('aria-labelledby', 'decision-heading');
+	// The decision card + its engineer-facing vocabulary (NIST categories,
+	// parameter sets) is deferred behind a disclosure so a newcomer meeting
+	// key exchange for the first time lands on arithmetic, not on a
+	// "what should I ship" briefing. Engineers expand it; beginners scroll past.
 	card.innerHTML = `
-		<div class="section-heading-row">
-			<div>
-				<p class="section-kicker">If you are building today</p>
-				<h2 id="decision-heading">Production decision card</h2>
-			</div>
-		</div>
+		<details class="decision-details">
+			<summary class="decision-summary">
+				<span class="section-kicker">For engineers · optional</span>
+				<span class="decision-summary-title" id="decision-heading">Production decision card — what to ship today</span>
+				<span class="decision-summary-hint">If you just want to learn how key exchange works, skip this and start with the DH playground below.</span>
+			</summary>
 		<div class="decision-grid">
 			<div class="decision-row">
 				<p class="hero-metric-label">Classical-only environment</p>
@@ -931,8 +1129,25 @@ function renderDecisionCard(): HTMLElement {
 				<p class="panel-copy"><strong>Use a vetted library.</strong> BoringSSL, OpenSSL, libsodium, liboqs, BouncyCastle, RustCrypto. Never roll your own — this lab is for teaching, not deployment.</p>
 			</div>
 		</div>
+		</details>
 	`;
 	return card;
+}
+
+// A one-line on-ramp for someone meeting key exchange for the first time.
+// Points straight at the DH playground (§2) so the first thing a newcomer
+// touches is live arithmetic, not naming or a shipping decision.
+function renderBeginnerBanner(): HTMLElement {
+	const banner = el('aside', 'beginner-banner');
+	banner.setAttribute('aria-label', 'New here?');
+	banner.innerHTML = `
+		<span class="beginner-banner-tag">New here?</span>
+		<p class="beginner-banner-text">
+			Key exchange is how two people agree on a shared secret while a stranger watches every message.
+			Start with the hands-on math — <a href="#dh" class="beginner-banner-link">jump to the Diffie–Hellman playground</a> — then follow the five generations up to post-quantum. The naming and production advice can wait.
+		</p>
+	`;
+	return banner;
 }
 
 // ---------- Synthesis card --------------------------------------------------
@@ -1201,6 +1416,7 @@ function renderShor(): HTMLElement {
 			</label>
 		</div>
 		<div id="shor-output" class="kx-output" aria-live="polite"></div>
+		<div id="shor-viz" class="shor-viz-wrap"></div>
 		<div class="panel-card shor-context">
 			<h3>What the quantum part actually does</h3>
 			<p class="panel-copy">
@@ -1228,12 +1444,14 @@ function renderShor(): HTMLElement {
 	const aInput = section.querySelector<HTMLInputElement>('#shor-a')!;
 	const randomBtn = section.querySelector<HTMLButtonElement>('#shor-random-a')!;
 	const output = section.querySelector<HTMLElement>('#shor-output')!;
+	const viz = section.querySelector<HTMLElement>('#shor-viz')!;
 
 	function rerun(): void {
 		const N = parseInt(nSel.value, 10);
 		let a = clampInt(aInput.value, 2, N - 1, 2);
 		const r = shorClassical(N, a);
 		output.innerHTML = renderShorResult(N, a, r);
+		viz.innerHTML = renderShorPeriodViz(N, a, r.period);
 	}
 
 	function pickRandomA(): void {
@@ -1296,6 +1514,110 @@ function renderShorResult(
 	`;
 }
 
+// "Shor in three registers": the step the quantum computer actually does.
+// We plot the REAL function f(x) = a^x mod N (register 2, the periodic one)
+// and the REAL magnitude of its Discrete Fourier Transform over a window
+// (register 3, what the QFT produces). The DFT of a periodic sequence peaks
+// at multiples of window/r — those peaks are exactly what continued fractions
+// turn into r. Nothing here is faked: the bars are the true modular powers and
+// the spectrum is a true |DFT|. It is labelled as the classical stand-in for
+// the quantum step so no one mistakes iteration for the quantum advantage.
+function renderShorPeriodViz(N: number, a: number, period: number): string {
+	if (gcdInt(a, N) !== 1 || period <= 0) {
+		return `<p class="shor-viz-note">Pick an <code>a</code> coprime to ${N} with an even period to see the periodic structure the quantum Fourier transform exploits.</p>`;
+	}
+	// Register 2: the periodic function itself.
+	const cols = Math.min(48, Math.max(period * 3, 16));
+	const fvals: number[] = [];
+	let cur = 1;
+	for (let x = 0; x < cols; x++) {
+		fvals.push(cur);
+		cur = (cur * a) % N;
+	}
+
+	// Register 3: real |DFT| of f over the window. We report the magnitude at
+	// each frequency bin; a period-r signal concentrates energy at bins that
+	// are multiples of cols/r. We compute it honestly with the naive O(n^2) DFT
+	// (cols is tiny). Bin 0 (the DC term) is dropped from the display since it
+	// only reflects the mean and would dwarf the informative peaks.
+	const mags: number[] = [];
+	for (let k = 0; k < cols; k++) {
+		let re = 0;
+		let im = 0;
+		for (let x = 0; x < cols; x++) {
+			const ang = (-2 * Math.PI * k * x) / cols;
+			re += fvals[x]! * Math.cos(ang);
+			im += fvals[x]! * Math.sin(ang);
+		}
+		mags.push(Math.hypot(re, im));
+	}
+	const specVals = mags.slice(1); // drop DC bin
+	const maxF = Math.max(...fvals, 1);
+	const maxS = Math.max(...specVals, 1);
+
+	// SVG geometry.
+	const W = 640;
+	const rowH = 120;
+	const pad = 30;
+	const barW = (W - 2 * pad) / cols;
+
+	const fBars = fvals
+		.map((v, x) => {
+			const h = (v / maxF) * (rowH - 24);
+			const inFirstPeriod = x < period;
+			return `<rect class="shor-bar${inFirstPeriod ? ' shor-bar--period' : ''}" x="${pad + x * barW + 1}" y="${rowH - 4 - h}" width="${Math.max(1, barW - 2)}" height="${h}"><title>x=${x}: ${a}^${x} mod ${N} = ${v}</title></rect>`;
+		})
+		.join('');
+
+	// Mark the first full period span under register 2.
+	const periodBracket = `
+		<line class="shor-period-rule" x1="${pad}" y1="${rowH - 2}" x2="${pad + period * barW}" y2="${rowH - 2}" />
+		<text class="shor-viz-tick" x="${pad + (period * barW) / 2}" y="${rowH + 12}" text-anchor="middle">period r = ${period}</text>
+	`;
+
+	const sBars = specVals
+		.map((v, i) => {
+			const k = i + 1;
+			const h = (v / maxS) * (rowH - 24);
+			// A bin is a "peak" if it is close to a multiple of cols/r.
+			const nearestMultiple = Math.round((k * period) / cols) * (cols / period);
+			const isPeak = Math.abs(k - nearestMultiple) < 0.5 && v > 0.35 * maxS;
+			return `<rect class="shor-bar shor-bar--spec${isPeak ? ' shor-bar--peak' : ''}" x="${pad + i * barW + 1}" y="${rowH - 4 - h}" width="${Math.max(1, barW - 2)}" height="${h}"><title>frequency bin ${k}: |DFT| = ${v.toFixed(1)}</title></rect>`;
+		})
+		.join('');
+
+	return `
+		<div class="panel-card shor-viz-card">
+			<div class="shor-viz-head">
+				<h3>Shor in three registers</h3>
+				<span class="shor-viz-badge">this is the step the quantum computer does</span>
+			</div>
+			<p class="panel-copy shor-viz-lede">
+				A quantum computer holds all inputs <code>x</code> at once (register 1), computes
+				<code>f(x) = ${a}ˣ mod ${N}</code> into register 2, then Fourier-transforms register 3.
+				The plots below are the <em>real</em> function values and the <em>real</em> |DFT| of that
+				window — the classical stand-in for what the QFT produces in one shot.
+			</p>
+			<figure class="shor-viz-figure">
+				<figcaption class="shor-viz-cap">Register 2 — <code>f(x) = ${a}ˣ mod ${N}</code> repeats every <strong>r = ${period}</strong> steps</figcaption>
+				<svg viewBox="0 0 ${W} ${rowH + 20}" width="100%" role="img" aria-label="Bar plot of a to the x mod N, showing it repeats every ${period} steps">
+					${fBars}
+					${periodBracket}
+				</svg>
+			</figure>
+			<figure class="shor-viz-figure">
+				<figcaption class="shor-viz-cap">Register 3 — |DFT| of that window peaks at multiples of <code>window / r</code>; continued fractions on a peak gives back <strong>r</strong></figcaption>
+				<svg viewBox="0 0 ${W} ${rowH + 8}" width="100%" role="img" aria-label="Fourier spectrum with sharp peaks at multiples of the window size over the period">
+					${sBars}
+				</svg>
+			</figure>
+			<p class="kx-footnote shor-viz-foot">
+				The cycle you iterated above is the <strong>classical</strong> way to find <code>r</code>; it is linear in <code>N</code>. The quantum win is that the QFT surfaces those peaks in <em>one</em> query regardless of <code>N</code>'s size. Module-LWE has no such hidden period for the transform to expose — which is the whole reason it survives Shor.
+			</p>
+		</div>
+	`;
+}
+
 // ---------- 11. Module-LWE ---------------------------------------------------
 
 // Tiny instance of the Module-LWE hard problem. With q = 11, n = 3, k = 3
@@ -1313,49 +1635,195 @@ function renderModuleLwe(): HTMLElement {
 			<div>
 				<p class="section-kicker">Section · 11</p>
 				<h2 id="mlwe-heading">Module-LWE — the new hard problem</h2>
-				<p class="panel-copy">ML-KEM's security rests on a single conjecture: <em>given (A, b = A·s + e mod q) with A public, s and e short and secret, recovering s is hard</em>. Here it is at toy size so you can see the shape. Click "Resample" to get fresh values.</p>
+				<p class="panel-copy">ML-KEM's security rests on a single conjecture: <em>given (A, b = A·s + e mod q) with A public, s and e short and secret, recovering s is hard</em>. Here it is at toy size so you can see the shape — and try to break it yourself. Click "Resample" for fresh values, then flip the noise on and off and hit "Solve for s".</p>
 			</div>
 		</div>
+		${toyBanner('q = 11, n = k = 3 so a 3×3 solve fits on screen. Real ML-KEM uses n = 256, k ∈ {2, 3, 4} over a polynomial ring — the same shape, far out of reach of any known solver.')}
+		<div class="kx-inputs mlwe-controls" role="group" aria-label="Module-LWE controls">
+			<label class="mlwe-toggle">
+				<input type="checkbox" id="mlwe-noise" checked />
+				<span>Add noise <code>e</code> (this is what ML-KEM does)</span>
+			</label>
+		</div>
 		<div class="kx-actions">
-			<button id="mlwe-resample" class="tab-button" type="button">Resample</button>
+			<button id="mlwe-resample" class="tab-button" type="button">Resample A, s, e</button>
+			<button id="mlwe-solve" class="tab-button" type="button">Solve A·s = b for s (Gaussian elimination)</button>
 		</div>
 		<div id="mlwe-output" class="kx-output" aria-live="polite"></div>
+		<div id="mlwe-attack" class="kx-output" aria-live="polite"></div>
 		<div class="panel-card">
 			<h3>Why this is hard</h3>
 			<p class="panel-copy">
-				Without the noise <code>e</code>, the system <code>A·s = b mod q</code> is a linear-algebra problem and Gaussian elimination solves it in milliseconds. The noise destroys that — the equations are "almost satisfied" by many short vectors, and finding the one the encrypter chose reduces to lattice problems (shortest-vector, learning-with-errors) for which no efficient classical or quantum algorithm is known. ML-KEM picks <code>n = 256</code>, <code>k ∈ {2, 3, 4}</code>, and a carefully shaped distribution for <code>s</code> and <code>e</code> to land at Categories 1, 3, and 5 of NIST's PQC security floor.
+				Without the noise <code>e</code>, the system <code>A·s = b mod q</code> is a linear-algebra problem and Gaussian elimination solves it in milliseconds — try it above with noise off and it recovers <code>s</code> exactly. Turn the noise on and the <em>same</em> elimination runs to completion but lands on a <em>wrong, non-short</em> vector: the equations are "almost satisfied" by many candidates, and finding the short one the encrypter chose reduces to lattice problems (shortest-vector, learning-with-errors) for which no efficient classical or quantum algorithm is known. ML-KEM picks <code>n = 256</code>, <code>k ∈ {2, 3, 4}</code>, and a carefully shaped distribution for <code>s</code> and <code>e</code> to land at Categories 1, 3, and 5 of NIST's PQC security floor.
 			</p>
 		</div>
 	`;
 
 	const output = section.querySelector<HTMLElement>('#mlwe-output')!;
-	const btn = section.querySelector<HTMLButtonElement>('#mlwe-resample')!;
+	const attackOut = section.querySelector<HTMLElement>('#mlwe-attack')!;
+	const resampleBtn = section.querySelector<HTMLButtonElement>('#mlwe-resample')!;
+	const solveBtn = section.querySelector<HTMLButtonElement>('#mlwe-solve')!;
+	const noiseToggle = section.querySelector<HTMLInputElement>('#mlwe-noise')!;
 
-	function rerun(): void {
-		output.innerHTML = renderModuleLweInstance();
+	let instance = sampleModuleLwe();
+
+	function render(): void {
+		const useNoise = noiseToggle.checked;
+		output.innerHTML = renderModuleLweInstance(instance, useNoise);
+		attackOut.innerHTML = '';
 	}
-	btn.addEventListener('click', rerun);
-	rerun();
+	function resample(): void {
+		instance = sampleModuleLwe();
+		render();
+	}
+	function solve(): void {
+		const useNoise = noiseToggle.checked;
+		attackOut.innerHTML = renderModuleLweSolve(instance, useNoise);
+	}
+
+	resampleBtn.addEventListener('click', resample);
+	solveBtn.addEventListener('click', solve);
+	noiseToggle.addEventListener('change', render);
+	render();
 	return section;
 }
 
-function renderModuleLweInstance(): string {
+interface MlweInstance {
+	q: number;
+	n: number;
+	k: number;
+	A: number[][];
+	s: number[];
+	e: number[];
+	bNoisy: number[]; // A·s + e mod q
+	bClean: number[]; // A·s      mod q
+}
+
+function mlweMod(x: number, q: number): number {
+	return ((x % q) + q) % q;
+}
+
+// Sample a Module-LWE instance whose public matrix A is INVERTIBLE mod q, so
+// Gaussian elimination has a unique solution. That is the honest setup: with
+// no noise the unique solution IS s; with noise the unique solution is some
+// other, non-short vector. (Real ML-KEM uses a wide, non-square structure; the
+// square invertible case is the cleanest way to show the noise-free system is
+// trivially solvable.)
+function sampleModuleLwe(): MlweInstance {
 	const q = 11;
 	const n = 3;
 	const k = 3;
-	const A: number[][] = Array.from({ length: k }, () =>
-		Array.from({ length: n }, () => Math.floor(Math.random() * q)),
-	);
-	// Short secret and error from {-1, 0, 1} (centered binomial-ish).
-	const s = Array.from({ length: n }, () => Math.floor(Math.random() * 3) - 1);
-	const e = Array.from({ length: k }, () => Math.floor(Math.random() * 3) - 1);
-	function mod(x: number): number {
-		return ((x % q) + q) % q;
+	for (let attempt = 0; attempt < 200; attempt++) {
+		const A: number[][] = Array.from({ length: k }, () =>
+			Array.from({ length: n }, () => Math.floor(Math.random() * q)),
+		);
+		if (matDetInvertible(A, q)) {
+			const s = Array.from({ length: n }, () => Math.floor(Math.random() * 3) - 1);
+			const e = Array.from({ length: k }, () => Math.floor(Math.random() * 3) - 1);
+			const bClean = A.map((row) =>
+				mlweMod(row.reduce((acc, aij, j) => acc + aij * s[j]!, 0), q),
+			);
+			const bNoisy = bClean.map((v, i) => mlweMod(v + e[i]!, q));
+			return { q, n, k, A, s, e, bNoisy, bClean };
+		}
 	}
-	const b = A.map((row, i) => mod(row.reduce((acc, aij, j) => acc + aij * s[j]!, 0) + e[i]!));
-	function fmtSigned(v: number): string {
-		return v >= 0 ? `+${v}` : `${v}`;
+	// Fallback: identity A (always invertible) — keeps the demo deterministic
+	// even in the astronomically unlikely case above never hits.
+	const A = [
+		[1, 0, 0],
+		[0, 1, 0],
+		[0, 0, 1],
+	];
+	const s = [1, -1, 0];
+	const e = [0, 1, -1];
+	const bClean = A.map((row) => mlweMod(row.reduce((acc, aij, j) => acc + aij * s[j]!, 0), q));
+	const bNoisy = bClean.map((v, i) => mlweMod(v + e[i]!, q));
+	return { q, n, k, A, s, e, bNoisy, bClean };
+}
+
+// Is det(A) a unit mod q (i.e. gcd(det, q) = 1)? q = 11 is prime, so this is
+// just det != 0 mod q, but we keep the general form.
+function matDetInvertible(A: number[][], q: number): boolean {
+	const n = A.length;
+	const M = A.map((r) => r.slice());
+	let det = 1;
+	for (let col = 0; col < n; col++) {
+		let piv = -1;
+		for (let r = col; r < n; r++) {
+			if (mlweMod(M[r]![col]!, q) !== 0) {
+				piv = r;
+				break;
+			}
+		}
+		if (piv === -1) return false;
+		if (piv !== col) {
+			[M[col], M[piv]] = [M[piv]!, M[col]!];
+			det = mlweMod(-det, q);
+		}
+		det = mlweMod(det * M[col]![col]!, q);
+		const inv = modInverseSmall(M[col]![col]!, q);
+		for (let r = col + 1; r < n; r++) {
+			const factor = mlweMod(M[r]![col]! * inv, q);
+			for (let c = col; c < n; c++) {
+				M[r]![c] = mlweMod(M[r]![c]! - factor * M[col]![c]!, q);
+			}
+		}
 	}
+	return mlweMod(det, q) !== 0;
+}
+
+// Modular inverse of a small value mod prime q by brute search (q ≤ 11 here).
+function modInverseSmall(a: number, q: number): number {
+	const am = mlweMod(a, q);
+	for (let x = 1; x < q; x++) {
+		if (mlweMod(am * x, q) === 1) return x;
+	}
+	throw new Error(`no inverse of ${a} mod ${q}`);
+}
+
+// Solve A·x = b mod q by Gaussian elimination (q prime). Returns the unique
+// solution vector x. Real code, no shortcuts — this is the exact classical
+// attack, and its whole point is that it succeeds on the noise-free b and
+// fails (recovers a wrong vector) on the noisy b.
+function gaussSolveModQ(A: number[][], b: number[], q: number): number[] {
+	const n = A.length;
+	const M = A.map((r, i) => [...r, b[i]!]);
+	for (let col = 0; col < n; col++) {
+		let piv = -1;
+		for (let r = col; r < n; r++) {
+			if (mlweMod(M[r]![col]!, q) !== 0) {
+				piv = r;
+				break;
+			}
+		}
+		if (piv === -1) throw new Error('singular');
+		[M[col], M[piv]] = [M[piv]!, M[col]!];
+		const inv = modInverseSmall(M[col]![col]!, q);
+		for (let c = col; c <= n; c++) M[col]![c] = mlweMod(M[col]![c]! * inv, q);
+		for (let r = 0; r < n; r++) {
+			if (r === col) continue;
+			const factor = mlweMod(M[r]![col]!, q);
+			for (let c = col; c <= n; c++) {
+				M[r]![c] = mlweMod(M[r]![c]! - factor * M[col]![c]!, q);
+			}
+		}
+	}
+	return M.map((row) => mlweMod(row[n]!, q));
+}
+
+// Represent a residue in the centered range (−q/2, q/2] so "short" is visible.
+function centeredRep(v: number, q: number): number {
+	const m = mlweMod(v, q);
+	return m > q / 2 ? m - q : m;
+}
+
+function fmtSignedLwe(v: number): string {
+	return v >= 0 ? `+${v}` : `${v}`;
+}
+
+function renderModuleLweInstance(inst: MlweInstance, useNoise: boolean): string {
+	const { q, n, k, A, s, e } = inst;
+	const b = useNoise ? inst.bNoisy : inst.bClean;
 
 	function matrixHtml(label: string, m: number[][]): string {
 		const rows = m
@@ -1370,7 +1838,7 @@ function renderModuleLweInstance(): string {
 	}
 	function vectorHtml(label: string, v: number[], signed = false): string {
 		const cells = v
-			.map((x) => `<td class="mono-cell">${signed ? fmtSigned(x) : x}</td>`)
+			.map((x) => `<td class="mono-cell">${signed ? fmtSignedLwe(x) : x}</td>`)
 			.join('');
 		return `
 			<div class="mlwe-matrix">
@@ -1380,16 +1848,86 @@ function renderModuleLweInstance(): string {
 		`;
 	}
 
+	const bLabel = useNoise ? `Public b = A·s + e mod ${q}` : `Public b = A·s mod ${q} (noise off)`;
+	const eBlock = useNoise
+		? vectorHtml('Error e (short)', e, true)
+		: `<div class="mlwe-matrix mlwe-matrix--off">
+				<p class="hero-metric-label">Error e</p>
+				<table class="mlwe-grid" aria-label="Error e disabled"><tbody><tr>${e
+					.map(() => `<td class="mono-cell mono-cell--off">0</td>`)
+					.join('')}</tr></tbody></table>
+			</div>`;
+
 	return `
 		<div class="mlwe-grid-row">
 			${matrixHtml('Public A (k=' + k + ' × n=' + n + ')', A)}
 			${vectorHtml('Secret s (short)', s, true)}
-			${vectorHtml('Error e (short)', e, true)}
-			${vectorHtml('Public b = A·s + e mod ' + q, b)}
+			${eBlock}
+			${vectorHtml(bLabel, b)}
 		</div>
 		<p class="kx-footnote">
-			Public: <strong>A</strong>, <strong>b</strong>.  Secret: <strong>s</strong>, <strong>e</strong>.  Modulus q = ${q}.  In ML-KEM the same shape scales up to n = 256 with k ∈ {2, 3, 4}; the encryption uses additional polynomial-ring structure (NTT-friendly) for speed.  Brute force on the toy instance is fast; on the real one it is conjectured infeasible for both classical and quantum machines.
+			Public: <strong>A</strong>, <strong>b</strong>.  Secret: <strong>s</strong>, <strong>e</strong>.  Modulus q = ${q}.  ${
+				useNoise
+					? 'Noise is <strong>on</strong> — this is a real (toy-size) Module-LWE instance. Hit "Solve" and watch elimination miss the true s.'
+					: 'Noise is <strong>off</strong> — this is a plain linear system. Hit "Solve" and elimination recovers s exactly.'
+			}  In ML-KEM the same shape scales up to n = 256 with k ∈ {2, 3, 4} over a polynomial ring.
 		</p>
+	`;
+}
+
+function renderModuleLweSolve(inst: MlweInstance, useNoise: boolean): string {
+	const { q, A, s } = inst;
+	const b = useNoise ? inst.bNoisy : inst.bClean;
+	let solved: number[];
+	try {
+		solved = gaussSolveModQ(A, b, q);
+	} catch {
+		return `<p class="scenario-status--invalid">A turned out singular mod ${q} — hit Resample.</p>`;
+	}
+	// Compare the eliminated solution to the true short secret s.
+	const sMod = s.map((v) => mlweMod(v, q));
+	const exact = solved.every((v, i) => v === sMod[i]);
+	const centered = solved.map((v) => centeredRep(v, q));
+	const isShort = centered.every((v) => Math.abs(v) <= 1);
+
+	const solvedCells = solved
+		.map((v, i) => {
+			const good = v === sMod[i];
+			// State via symbol + colour, never colour alone.
+			return `<td class="mono-cell ${good ? 'mlwe-cell--hit' : 'mlwe-cell--miss'}">${v}<span class="mlwe-cell-mark" aria-hidden="true">${good ? '✓' : '✗'}</span></td>`;
+		})
+		.join('');
+	const sCells = sMod
+		.map((v) => `<td class="mono-cell">${v}</td>`)
+		.join('');
+
+	const verdict = useNoise
+		? exact
+			? `<p class="scenario-status--invalid">Elimination happened to hit s this time — resample; with real ML-KEM noise the recovered vector is essentially never short.</p>`
+			: `<p class="scenario-status--valid">✓ Elimination finished — but landed on <strong>x = (${centered
+					.map(fmtSignedLwe)
+					.join(', ')})</strong>, which is <strong>not short</strong> (${
+					isShort ? 'short by luck this draw — resample' : 'entries outside {−1, 0, +1}'
+				}) and <strong>not the secret s</strong>. The noise made the unique linear solution useless. This is the felt lattice-hardness: the answer exists, it just is not the short one.</p>`
+		: exact
+			? `<p class="scenario-status--valid">✓ With no noise, Gaussian elimination recovers <strong>s exactly</strong> in three row operations. No lattice, no hardness — this is why the noise is the whole game.</p>`
+			: `<p class="scenario-status--invalid">Unexpected mismatch on a noise-free system — please resample.</p>`;
+
+	return `
+		<div class="attack-card mlwe-attack-card">
+			<p class="hero-metric-label">Gaussian elimination on A·x = b mod ${q}</p>
+			<div class="mlwe-solve-compare">
+				<div class="mlwe-matrix">
+					<p class="hero-metric-label">Recovered x</p>
+					<table class="mlwe-grid" aria-label="Recovered vector x"><tbody><tr>${solvedCells}</tr></tbody></table>
+				</div>
+				<div class="mlwe-matrix">
+					<p class="hero-metric-label">True secret s (mod ${q})</p>
+					<table class="mlwe-grid" aria-label="True secret s"><tbody><tr>${sCells}</tr></tbody></table>
+				</div>
+			</div>
+			${verdict}
+		</div>
 	`;
 }
 
@@ -1634,6 +2172,7 @@ export function mountApp(root: HTMLDivElement): void {
 
 	shell.appendChild(renderHero());
 	shell.appendChild(renderSectionNav());
+	shell.appendChild(renderBeginnerBanner());
 	shell.appendChild(renderDecisionCard());
 	shell.appendChild(renderTimeline());
 	const dhSection = renderDhPlayground();
