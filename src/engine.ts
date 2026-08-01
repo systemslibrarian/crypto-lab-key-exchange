@@ -192,9 +192,11 @@ export function ecdh(curve: Curve, a: number, b: number): EcdhResult {
 
 // The standard tiny teaching curve used throughout the demo:
 //   y² = x³ + 2x + 2  (mod 17),  G = (5, 1),  order 19.
-// G is verified on-curve at construction time; the order is the textbook
-// figure cited in Hankerson/Menezes/Vanstone § 3.2 example and reproduced
-// across crypto courses.
+// G is verified on-curve at construction time. This is the worked example from
+// Paar & Pelzl, "Understanding Cryptography", Chapter 9 (Elliptic Curve
+// Cryptosystems), whose slides give "E: y² = x³ + 2x + 2 mod 17" with P = (5,1)
+// and "#E = 19, since it contains 19 points in its cyclic group". It is
+// reproduced across crypto courses.
 export const DEMO_CURVE: Curve = {
 	a: 2,
 	b: 2,

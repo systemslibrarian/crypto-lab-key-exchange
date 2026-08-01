@@ -1425,18 +1425,18 @@ function renderShor(): HTMLElement {
 			<p class="panel-copy">
 				<strong>Why Module-LWE survives.</strong> Shor's speed-up needs a hidden <em>periodic</em> structure. Lattice problems like Module-LWE don't have one — the secret is a short vector, not a hidden exponent, and the noise <code>e</code> destroys whatever Fourier structure a noise-free instance might have. No quantum algorithm is known to beat the best classical lattice algorithms by more than a Grover-style square-root factor.
 			</p>
-			<h3>Resource estimate (Gidney &amp; Ekerå, 2019)</h3>
-			<div class="table-shell" tabindex="0" role="region" aria-label="Quantum resource estimate to break RSA-2048 by Shor's algorithm">
+			<h3>Quantum resource estimates</h3>
+			<div class="table-shell" tabindex="0" role="region" aria-label="Quantum resource estimates to break RSA-2048, 2048-bit Diffie-Hellman and Curve25519 by Shor's algorithm, with the source of each estimate">
 				<table class="math-table shor-resources">
-					<thead><tr><th>Target</th><th>Logical qubits</th><th>Physical qubits</th><th>Wall time</th></tr></thead>
+					<thead><tr><th>Target</th><th>Logical qubits</th><th>Physical qubits</th><th>Wall time</th><th>Source</th></tr></thead>
 					<tbody>
-						<tr><td>RSA-2048</td><td class="mono-cell">≈ 4 100</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td></tr>
-						<tr><td>2048-bit DH</td><td class="mono-cell">≈ 4 100</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td></tr>
-						<tr><td>Curve25519 (ECDLP)</td><td class="mono-cell">≈ 2 330</td><td class="mono-cell">≈ 11 000 000</td><td class="mono-cell">≈ hours</td></tr>
+						<tr><td>RSA-2048</td><td class="mono-cell">≈ 4 100</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td><td>Gidney &amp; Ekerå, 2019</td></tr>
+						<tr><td>2048-bit DH</td><td class="mono-cell">≈ 4 100</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td><td>Gidney &amp; Ekerå, 2019 (same modulus size)</td></tr>
+						<tr><td>Curve25519 (ECDLP)</td><td class="mono-cell">≈ 2 330</td><td class="mono-cell">≈ 11 000 000</td><td class="mono-cell">≈ hours</td><td>Roetteler, Naehrig, Svore &amp; Lauter, ASIACRYPT 2017</td></tr>
 					</tbody>
 				</table>
 			</div>
-			<p class="kx-footnote">Today's best superconducting hardware is on the order of 1 000 noisy physical qubits. The gap is huge — but the curve of progress and the long lifetime of harvested traffic are exactly why production has already started migrating.</p>
+			<p class="kx-footnote">These figures come from two different papers and are not directly comparable: the factoring and finite-field rows are Gidney &amp; Ekerå's surface-code costing, while the ECDLP row is Roetteler et al.'s logical-qubit count of 9n + 2⌈log₂ n⌉ + 10, which is 2 330 at n = 256; its physical-qubit and wall-time figures are extrapolations under comparable surface-code assumptions rather than numbers either paper states. Today's best superconducting hardware is on the order of 1 000 noisy physical qubits. The gap is huge — but the curve of progress and the long lifetime of harvested traffic are exactly why production has already started migrating.</p>
 		</div>
 	`;
 
