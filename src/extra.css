@@ -151,7 +151,9 @@
 
 .kx-inputs input {
   padding: 10px 12px;
-  border: 1px solid var(--line);
+  /* --border-strong, not --line: WCAG 2.1 SC 1.4.11. Achieved >=3.27:1 (light) and
+     >=3.42:1 (dark) against every surface these fields sit on. */
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
   background-color: var(--input-bg);
   color: var(--ink-strong);
