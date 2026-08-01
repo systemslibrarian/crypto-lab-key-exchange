@@ -2138,6 +2138,9 @@ function wireScrollSpy(): void {
 
 function renderFooter(): HTMLElement {
 	const footer = el('footer', 'lab-section');
+	// Explicit role: this <footer> is nested inside <main id="app">, where the
+	// implicit contentinfo landmark would otherwise be suppressed.
+	footer.setAttribute('role', 'contentinfo');
 	const reviewed = '2026-06';
 	footer.innerHTML = `
 		<div class="footer-meta">
