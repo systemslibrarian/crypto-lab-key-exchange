@@ -37,6 +37,15 @@ async function revealAll(page: Page): Promise<void> {
   });
 }
 
+// The MitM relay renders only after it runs, and its two outcomes (relayed
+// attack vs. signature-aborted) are different markup. Drive both so the scan
+// covers what a learner actually sees.
+async function runRelay(page: Page, authenticated: boolean): Promise<void> {
+  await page.locator('#mitm-tamper').check();
+  await page.locator(authenticated ? '#mitm-authrun' : '#mitm-relay').click();
+  await expect(page.locator('#mitm-verdict')).toBeVisible();
+}
+
 async function scan(page: Page): Promise<void> {
   const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   const summary = results.violations.map((v) => ({
@@ -48,17 +57,39 @@ async function scan(page: Page): Promise<void> {
   expect(summary).toEqual([]);
 }
 
-test('no WCAG A/AA violations in dark theme', async ({ page }) => {
+// revealAll() un-hides the keyboard-shortcuts dialog, which then covers the
+// page, so each relay outcome gets a fresh load: run the relay, reveal, scan.
+async function loadRunAndScan(
+  page: Page,
+  light: boolean,
+  relay: 'none' | 'attack' | 'defended',
+): Promise<void> {
   await page.goto('.');
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  // The topbar toggle persists the choice in localStorage, so a second load in
+  // the same test may already be in the target theme — toggle only if needed.
+  const want = light ? 'light' : 'dark';
+  const current = await page.locator('html').getAttribute('data-theme');
+  if (current !== want) await page.locator('#cl-theme-toggle').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', want);
+  if (relay !== 'none') await runRelay(page, relay === 'defended');
   await revealAll(page);
   await scan(page);
+}
+
+test('no WCAG A/AA violations in dark theme', async ({ page }) => {
+  await loadRunAndScan(page, false, 'none');
 });
 
 test('no WCAG A/AA violations in light theme', async ({ page }) => {
-  await page.goto('.');
-  await page.locator('#cl-theme-toggle').click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await revealAll(page);
-  await scan(page);
+  await loadRunAndScan(page, true, 'none');
+});
+
+test('no WCAG A/AA violations with the MitM relay run (dark)', async ({ page }) => {
+  await loadRunAndScan(page, false, 'attack');
+  await loadRunAndScan(page, false, 'defended');
+});
+
+test('no WCAG A/AA violations with the MitM relay run (light)', async ({ page }) => {
+  await loadRunAndScan(page, true, 'attack');
+  await loadRunAndScan(page, true, 'defended');
 });

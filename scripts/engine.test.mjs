@@ -19,10 +19,12 @@ import {
 	hybridCombine,
 	hybridHandshake,
 	isOnCurve,
+	mitmRelay,
 	mlkemEncapsulateDemo,
 	modInverse,
 	modPow,
 	pointToString,
+	TAMPERED_TEXT,
 } from '../src/engine.ts';
 
 import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
@@ -246,4 +248,90 @@ test('hybridHandshake: real X25519 + real ML-KEM-768 -> both ends derive the sam
 	assert.equal(r.bobSessionKey.length, 64);
 	assert.equal(r.agree, true, 'Alice and Bob must derive identical session keys');
 	assert.equal(r.aliceSessionKey, r.bobSessionKey);
+});
+
+// ---------- Active MitM relay -------------------------------------------------
+//
+// The panel used to stop at "here are two different numbers". These tests pin
+// the consequence: Eve's key really decrypts Alice's ciphertext, her relay
+// really lands in Bob's plaintext, and the signed-key-share variant really
+// stops it before anything is sent.
+
+const RELAY_BASE = { p: 23, g: 5, a: 6, b: 15, e1: 4, e2: 11, message: 'Attack at dawn.' };
+
+test('mitmRelay: unauthenticated — Eve decrypts the real ciphertext and relays it', async () => {
+	const r = await mitmRelay({ ...RELAY_BASE, authenticated: false, substitute: true, tamper: false });
+	assert.equal(r.shareSubstituted, true);
+	assert.equal(r.aborted, false);
+	// Real AES-GCM decrypt with the key Eve tricked Alice into agreeing.
+	assert.equal(r.eveRecovered, RELAY_BASE.message);
+	// Bob's side looks entirely normal.
+	assert.equal(r.bobRecovered, RELAY_BASE.message);
+	assert.equal(r.bobSawAlteredText, false);
+	// Alice's own ciphertext is NOT openable by Bob — real tag failure.
+	assert.equal(r.bobCanOpenAliceCiphertext, false);
+	assert.equal(r.aliceBobAgree, false);
+	assert.equal(r.eveHoldsAliceLeg, true);
+	assert.equal(r.eveHoldsBobLeg, true);
+	assert.equal(r.aliceLegKeyHex.length, 64);
+	assert.notEqual(r.aliceLegKeyHex, r.bobLegKeyHex);
+	assert.notEqual(r.aliceCiphertextHex, r.relayedCiphertextHex);
+});
+
+test('mitmRelay: unauthenticated — Eve can put her own words in Bob’s hands', async () => {
+	const r = await mitmRelay({ ...RELAY_BASE, authenticated: false, substitute: true, tamper: true });
+	assert.equal(r.eveRecovered, RELAY_BASE.message);
+	assert.equal(r.bobRecovered, TAMPERED_TEXT);
+	assert.equal(r.bobSawAlteredText, true);
+});
+
+test('mitmRelay: unauthenticated — the skipped signature check would have caught it', async () => {
+	const r = await mitmRelay({ ...RELAY_BASE, authenticated: false, substitute: true, tamper: false });
+	assert.equal(r.signatureChecked, false);
+	assert.equal(r.signatureWouldVerify, false);
+	// Control: the check is capable of passing, so `false` means "Eve's share".
+	assert.equal(r.genuineShareVerifies, true);
+});
+
+test('mitmRelay: authenticated — the identical attack is defeated before sending', async () => {
+	const r = await mitmRelay({ ...RELAY_BASE, authenticated: true, substitute: true, tamper: true });
+	assert.equal(r.signatureChecked, true);
+	assert.equal(r.signatureWouldVerify, false);
+	assert.equal(r.genuineShareVerifies, true);
+	assert.equal(r.aborted, true);
+	assert.match(r.abortReason, /verification/i);
+	assert.equal(r.eveRecovered, null);
+	assert.equal(r.bobRecovered, null);
+	assert.equal(r.aliceCiphertextHex, null);
+	assert.equal(r.bobSawAlteredText, false);
+});
+
+test('mitmRelay: authenticated with no attacker — the honest exchange goes through', async () => {
+	// e1/e2 chosen so Eve's exponents do not collide with a·b in this tiny group.
+	const r = await mitmRelay({
+		...RELAY_BASE,
+		e1: 3,
+		e2: 7,
+		authenticated: true,
+		substitute: false,
+		tamper: false,
+	});
+	assert.equal(r.shareSubstituted, false);
+	assert.equal(r.signatureWouldVerify, true);
+	assert.equal(r.aborted, false);
+	assert.equal(r.aliceBobAgree, true);
+	assert.equal(r.bobCanOpenAliceCiphertext, true);
+	assert.equal(r.bobRecovered, RELAY_BASE.message);
+	// Watching the wire is not enough: her key's tag check fails.
+	assert.equal(r.eveRecovered, null);
+});
+
+test('mitmRelay: the relay legs use genuinely different AES keys', async () => {
+	const r = await mitmRelay({ ...RELAY_BASE, authenticated: false, substitute: true, tamper: false });
+	// Alice encrypted under HKDF(g^(a·e1)); Bob decrypted under HKDF(g^(b·e2)).
+	assert.equal(r.aliceShared, modPow(r.A, RELAY_BASE.e1, RELAY_BASE.p));
+	assert.equal(r.bobShared, modPow(r.B, RELAY_BASE.e2, RELAY_BASE.p));
+	assert.notEqual(r.aliceShared, r.bobShared);
+	assert.match(r.aliceLegKeyHex, /^[0-9a-f]{64}$/);
+	assert.match(r.bobLegKeyHex, /^[0-9a-f]{64}$/);
 });

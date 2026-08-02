@@ -898,6 +898,50 @@
   color: var(--mono-block-fg);
 }
 
+/* Relay sub-panel inside the MitM section */
+.mitm-relay-heading {
+  margin: 28px 0 8px;
+  color: var(--ink-strong);
+}
+
+/* The message field wants a full row; the tamper toggle is a checkbox rather
+   than a labelled field, so it opts out of the label grid. */
+.kx-inputs .kx-input-wide {
+  grid-column: 1 / -1;
+}
+
+.kx-inputs .kx-input-check {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+}
+
+.kx-inputs .kx-input-check input {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+  accent-color: var(--accent-3);
+}
+
+/* Inside the warning-toned attack card, the key/value rows must use the card's
+   own foreground so contrast holds against --warning-bg in both themes. The
+   accent-toned .scenario-status--* colours are tuned for the panel background,
+   not this one, so the ✓/✗ glyphs carry the pass/fail meaning here. */
+.attack-card .mitm-checks dt,
+.attack-card .mitm-checks dd {
+  color: var(--warning-fg);
+}
+
+/* ...except mono blocks, which keep their own dark background in both themes
+   and therefore need their own light foreground. */
+.attack-card .mitm-checks dd.mono-inline {
+  background-color: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+}
+
 .mitm-checks {
   margin: 16px 0 0;
   display: grid;

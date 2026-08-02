@@ -57,6 +57,11 @@ jobs:
       - name: Accessibility audit (axe-core, WCAG 2.1 A/AA)
         run: npm run axe
 
+      # Playwright suite in ./e2e: the WCAG gate plus the MitM relay exhibit's
+      # computed-outcome assertions. It boots its own preview on port 4224.
+      - name: Browser exhibit + WCAG suite (Playwright)
+        run: npx playwright test
+
       - name: Stop preview
         if: always()
         run: |

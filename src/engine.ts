@@ -21,7 +21,7 @@
 // DH/ECDH parameters are safe for production; use a vetted library.
 
 import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
-import { x25519 } from '@noble/curves/ed25519.js';
+import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 
@@ -79,6 +79,247 @@ export function discreteLogAttack(g: number, A: number, p: number): number | nul
 		if (modPow(g, x, p) === A) return x;
 	}
 	return null;
+}
+
+// ---------- Active MitM: the relay, and the signature that stops it ----------
+//
+// Showing that Alice's and Bob's numbers differ is only half the lesson. The
+// other half is the consequence: Eve holds the key on BOTH legs, so she can
+// decrypt Alice's actual message, read it, optionally rewrite it, and re-encrypt
+// it to Bob under his key. Both ends see a working conversation.
+//
+// Everything below is real: HKDF-SHA256 derives an AES-256-GCM key from each
+// leg's DH value, and the encryptions, decryptions and authentication-tag
+// failures are WebCrypto. The DH values themselves are toy-sized (p <= 9973, so
+// the shared value carries at most ~14 bits), which the UI states plainly — the
+// point of this exhibit is the relay, not key strength. The signature that stops
+// it is real Ed25519 over the key share, the same idea TLS uses when the server
+// signs its key share with its certificate key.
+
+const RELAY_KDF_LABEL = 'crypto-lab-key-exchange mitm-relay leg key v1';
+const KEY_SHARE_CONTEXT = 'crypto-lab-key-exchange key-share:';
+
+export interface MitmRelayParams {
+	p: number;
+	g: number;
+	a: number; // Alice's secret exponent
+	b: number; // Bob's secret exponent
+	e1: number; // Eve's secret toward Alice
+	e2: number; // Eve's secret toward Bob
+	message: string;
+	/** Does Alice verify an Ed25519 signature over the key share she receives? */
+	authenticated: boolean;
+	/** Does Eve substitute her own key shares on the wire? */
+	substitute: boolean;
+	/** Does Eve rewrite the message before re-encrypting it to Bob? */
+	tamper: boolean;
+}
+
+export interface MitmRelayResult {
+	authenticated: boolean;
+	substitute: boolean;
+	tamper: boolean;
+	originalMessage: string;
+
+	// --- the wire ---
+	A: number; // g^a mod p, Alice's genuine key share
+	B: number; // g^b mod p, Bob's genuine key share
+	offeredToAlice: number; // what Alice received as "Bob's" share
+	offeredToBob: number; // what Bob received as "Alice's" share
+	shareSubstituted: boolean;
+
+	// --- what each party derives ---
+	aliceShared: number;
+	bobShared: number;
+	eveWithAlice: number;
+	eveWithBob: number;
+	aliceBobAgree: boolean;
+	eveHoldsAliceLeg: boolean;
+	eveHoldsBobLeg: boolean;
+
+	// --- authentication ---
+	signatureChecked: boolean;
+	signatureWouldVerify: boolean; // real Ed25519 verify of the offered share
+	genuineShareVerifies: boolean; // control: same check over Bob's real share
+	aborted: boolean;
+	abortReason: string | null;
+
+	// --- the relay itself ---
+	aliceLegKeyHex: string | null; // AES key on the Alice-side leg
+	bobLegKeyHex: string | null; // AES key on the Bob-side leg
+	aliceCiphertextHex: string | null;
+	relayedCiphertextHex: string | null;
+	eveRecovered: string | null; // real AES-GCM decrypt by Eve
+	bobRecovered: string | null; // real AES-GCM decrypt by Bob
+	bobSawAlteredText: boolean;
+	bobCanOpenAliceCiphertext: boolean; // real attempt, real tag check
+	/** Bits of entropy in the DH value the AES key is derived from. */
+	legKeyEntropyBits: number;
+}
+
+export const TAMPERED_TEXT = 'Disregard the ledger. Send the funds to account 4471. — Alice';
+
+// HKDF-SHA256 over the fixed-width DH value, then a real AES-256-GCM key.
+async function legKey(dhValue: number): Promise<{ key: CryptoKey; hex: string }> {
+	const okm = hkdf(
+		sha256,
+		encodeDhSecret(dhValue),
+		new Uint8Array(0),
+		new TextEncoder().encode(RELAY_KDF_LABEL),
+		32,
+	);
+	const key = await crypto.subtle.importKey('raw', okm as BufferSource, 'AES-GCM', false, [
+		'encrypt',
+		'decrypt',
+	]);
+	return { key, hex: bytesToHex(okm) };
+}
+
+async function gcmEncrypt(key: CryptoKey, text: string): Promise<Uint8Array> {
+	const iv = crypto.getRandomValues(new Uint8Array(12));
+	const ct = new Uint8Array(
+		await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text)),
+	);
+	const out = new Uint8Array(iv.length + ct.length);
+	out.set(iv, 0);
+	out.set(ct, iv.length);
+	return out;
+}
+
+async function gcmDecrypt(key: CryptoKey, packed: Uint8Array): Promise<string | null> {
+	try {
+		const iv = packed.slice(0, 12);
+		const ct = packed.slice(12);
+		const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct as BufferSource);
+		return new TextDecoder().decode(pt);
+	} catch {
+		return null; // authentication tag rejected the ciphertext
+	}
+}
+
+function shareBytes(share: number): Uint8Array {
+	return new TextEncoder().encode(KEY_SHARE_CONTEXT + String(share));
+}
+
+export async function mitmRelay(params: MitmRelayParams): Promise<MitmRelayResult> {
+	const { p, g, a, b, e1, e2, message, authenticated, substitute, tamper } = params;
+
+	const A = modPow(g, a, p);
+	const B = modPow(g, b, p);
+	const E1 = modPow(g, e1, p); // Eve's "I am Bob" share
+	const E2 = modPow(g, e2, p); // Eve's "I am Alice" share
+
+	const offeredToAlice = substitute ? E1 : B;
+	const offeredToBob = substitute ? E2 : A;
+
+	const aliceShared = modPow(offeredToAlice, a, p);
+	const bobShared = modPow(offeredToBob, b, p);
+	const eveWithAlice = modPow(A, e1, p);
+	const eveWithBob = modPow(B, e2, p);
+
+	// Bob's long-term identity key signs his key share; Eve can only sign hers
+	// with her own identity key, because she does not hold Bob's.
+	const bobIdentity = ed25519.utils.randomSecretKey();
+	const bobIdentityPub = ed25519.getPublicKey(bobIdentity);
+	const eveIdentity = ed25519.utils.randomSecretKey();
+
+	const genuineSig = ed25519.sign(shareBytes(B), bobIdentity);
+	const offeredSig = substitute ? ed25519.sign(shareBytes(E1), eveIdentity) : genuineSig;
+
+	// Both verifications are real and both run every time: the second is the
+	// control proving the check is capable of returning true.
+	const signatureWouldVerify = ed25519.verify(
+		offeredSig,
+		shareBytes(offeredToAlice),
+		bobIdentityPub,
+	);
+	const genuineShareVerifies = ed25519.verify(genuineSig, shareBytes(B), bobIdentityPub);
+
+	const base: MitmRelayResult = {
+		authenticated,
+		substitute,
+		tamper,
+		originalMessage: message,
+		A,
+		B,
+		offeredToAlice,
+		offeredToBob,
+		shareSubstituted: offeredToAlice !== B || offeredToBob !== A,
+		aliceShared,
+		bobShared,
+		eveWithAlice,
+		eveWithBob,
+		aliceBobAgree: aliceShared === bobShared,
+		eveHoldsAliceLeg: aliceShared === eveWithAlice,
+		eveHoldsBobLeg: bobShared === eveWithBob,
+		signatureChecked: authenticated,
+		signatureWouldVerify,
+		genuineShareVerifies,
+		aborted: false,
+		abortReason: null,
+		aliceLegKeyHex: null,
+		bobLegKeyHex: null,
+		aliceCiphertextHex: null,
+		relayedCiphertextHex: null,
+		eveRecovered: null,
+		bobRecovered: null,
+		bobSawAlteredText: false,
+		bobCanOpenAliceCiphertext: false,
+		legKeyEntropyBits: Math.round(Math.log2(Math.max(2, p - 1)) * 10) / 10,
+	};
+
+	if (authenticated && !signatureWouldVerify) {
+		return {
+			...base,
+			aborted: true,
+			abortReason:
+				'Ed25519 verification of the offered key share against Bob’s long-term identity key returned false. Alice stopped before sending, so there was no ciphertext for Eve to relay.',
+		};
+	}
+
+	// Alice encrypts under the key she derived from the share she was handed.
+	const aliceLeg = await legKey(aliceShared);
+	const aliceCiphertext = await gcmEncrypt(aliceLeg.key, message);
+
+	// Bob's own key, derived from the share HE was handed.
+	const bobLeg = await legKey(bobShared);
+
+	// Real attempt: can Bob open the ciphertext Alice actually produced?
+	const bobOnOriginal = await gcmDecrypt(bobLeg.key, aliceCiphertext);
+
+	// Real attempt: Eve decrypts with the key she derived on the Alice-side leg.
+	// When she substituted, that key is Alice's key. When she did not, this is
+	// merely a passive guess and the tag rejects it — unless the toy group is so
+	// small that the two exponents collide, which `eveHoldsAliceLeg` reports.
+	const eveLeg = await legKey(eveWithAlice);
+	const eveRecovered = await gcmDecrypt(eveLeg.key, aliceCiphertext);
+
+	let relayed: Uint8Array | null = null;
+	let bobRecovered: string | null = null;
+	if (substitute && eveRecovered !== null) {
+		// Eve is on the wire AND could read it: she re-encrypts under the key she
+		// shares with Bob, optionally with her own words in place of Alice's.
+		const eveBobLeg = await legKey(eveWithBob);
+		relayed = await gcmEncrypt(eveBobLeg.key, tamper ? TAMPERED_TEXT : eveRecovered);
+		bobRecovered = await gcmDecrypt(bobLeg.key, relayed);
+	} else if (bobOnOriginal !== null) {
+		// Nothing was substituted (or Eve could not read it), so Alice's own
+		// ciphertext is what reaches Bob.
+		relayed = aliceCiphertext;
+		bobRecovered = bobOnOriginal;
+	}
+
+	return {
+		...base,
+		aliceLegKeyHex: aliceLeg.hex,
+		bobLegKeyHex: bobLeg.hex,
+		aliceCiphertextHex: bytesToHex(aliceCiphertext),
+		relayedCiphertextHex: relayed ? bytesToHex(relayed) : null,
+		eveRecovered,
+		bobRecovered,
+		bobSawAlteredText: bobRecovered !== null && bobRecovered !== message,
+		bobCanOpenAliceCiphertext: bobOnOriginal !== null,
+	};
 }
 
 // ---------- ECDH -------------------------------------------------------------

@@ -14,6 +14,7 @@ import {
 	hybridCombine,
 	INFINITY,
 	isOnCurve,
+	mitmRelay,
 	mlkemEncapsulateDemo,
 	modPow,
 	pointToString,
@@ -22,6 +23,7 @@ import {
 	type ECPoint,
 	type EcdhResult,
 	type KemResult,
+	type MitmRelayResult,
 } from './engine.ts';
 import {
 	DEPLOYMENTS,
@@ -507,6 +509,29 @@ function renderMitm(): HTMLElement {
 			</label>
 		</div>
 		<div id="mitm-output" class="kx-output" aria-live="polite"></div>
+		<h3 class="mitm-relay-heading">Now make Eve <em>do</em> something with it</h3>
+		<p class="panel-copy">Two different numbers is the diagnosis, not the damage. Give Alice a message and watch Eve
+			decrypt it with the key she just tricked Alice into sharing, then re-encrypt it to Bob under <em>his</em> key —
+			so Bob's decryption succeeds and neither end sees anything wrong. Then run the identical attack on a wire where
+			the key shares arrive <strong>signed</strong>.</p>
+		${toyBanner(
+			'The AES-256-GCM below is real WebCrypto, but its key is HKDF-derived from a DH value in this toy group — with p = 23 that is under 5 bits, so the key is guessable on its own. Eve’s advantage here comes from the key substitution, not the key size; production DH uses 2048-bit primes and X25519 uses a 255-bit curve.',
+		)}
+		<div class="kx-inputs" role="group" aria-label="Relay inputs">
+			<label class="kx-input-wide">
+				<span>Alice’s message</span>
+				<input type="text" id="mitm-msg" value="Attack at dawn. Bring the ledger. — Alice" />
+			</label>
+			<label class="kx-input-check">
+				<input type="checkbox" id="mitm-tamper" />
+				<span>Eve rewrites it before relaying</span>
+			</label>
+		</div>
+		<div class="kx-actions">
+			<button id="mitm-relay" class="tab-button" type="button">Relay it — unauthenticated</button>
+			<button id="mitm-authrun" class="tab-button" type="button">Same attack — signed key shares</button>
+		</div>
+		<div id="mitm-relay-output" class="attack-output" aria-live="polite"></div>
 	`;
 
 	const fields = ['p', 'g', 'a', 'b', 'e1', 'e2'] as const;
@@ -514,8 +539,16 @@ function renderMitm(): HTMLElement {
 		fields.map((f) => [f, section.querySelector<HTMLInputElement>(`#mitm-${f}`)!]),
 	) as Record<(typeof fields)[number], HTMLInputElement>;
 	const output = section.querySelector<HTMLElement>('#mitm-output')!;
+	const msgInput = section.querySelector<HTMLInputElement>('#mitm-msg')!;
+	const tamperInput = section.querySelector<HTMLInputElement>('#mitm-tamper')!;
+	const relayBtn = section.querySelector<HTMLButtonElement>('#mitm-relay')!;
+	const authBtn = section.querySelector<HTMLButtonElement>('#mitm-authrun')!;
+	const relayOut = section.querySelector<HTMLElement>('#mitm-relay-output')!;
 
 	function rerun(): void {
+		// Any parameter change invalidates a previous relay run — clear it rather
+		// than leave numbers on screen that no longer belong to these inputs.
+		relayOut.innerHTML = '';
 		const p = clampInt(inputs.p.value, 3, 9973, 23);
 		const g = clampInt(inputs.g.value, 2, p - 1, 5);
 		const a = clampInt(inputs.a.value, 1, p - 1, 6);
@@ -570,9 +603,123 @@ function renderMitm(): HTMLElement {
 		`;
 	}
 
+	// Run the relay for real. Both buttons mount the SAME key substitution; the
+	// only difference is whether Alice checks the Ed25519 signature over the key
+	// share she was handed.
+	async function runRelay(authenticated: boolean, btn: HTMLButtonElement): Promise<void> {
+		const p = clampInt(inputs.p.value, 3, 9973, 23);
+		const g = clampInt(inputs.g.value, 2, p - 1, 5);
+		const a = clampInt(inputs.a.value, 1, p - 1, 6);
+		const b = clampInt(inputs.b.value, 1, p - 1, 15);
+		const e1 = clampInt(inputs.e1.value, 1, p - 1, 4);
+		const e2 = clampInt(inputs.e2.value, 1, p - 1, 11);
+		btn.disabled = true;
+		btn.setAttribute('aria-busy', 'true');
+		try {
+			const r = await mitmRelay({
+				p,
+				g,
+				a,
+				b,
+				e1,
+				e2,
+				message: msgInput.value,
+				authenticated,
+				substitute: true,
+				tamper: tamperInput.checked,
+			});
+			relayOut.innerHTML = renderRelayResult(r);
+		} catch (err) {
+			relayOut.innerHTML = `<p class="scenario-status--invalid">Relay failed: ${(err as Error).message}</p>`;
+		} finally {
+			btn.disabled = false;
+			btn.removeAttribute('aria-busy');
+		}
+	}
+
+	relayBtn.addEventListener('click', () => {
+		void runRelay(false, relayBtn);
+	});
+	authBtn.addEventListener('click', () => {
+		void runRelay(true, authBtn);
+	});
+
 	Object.values(inputs).forEach((i) => i.addEventListener('input', rerun));
 	rerun();
 	return section;
+}
+
+// Renders ONLY values the run computed: the two AES keys HKDF-derived from this
+// run's DH values, the real ciphertexts, the plaintexts each party's key
+// actually recovered, and the real Ed25519 verification results.
+function renderRelayResult(r: MitmRelayResult): string {
+	const sigRows = `
+		<dl class="mitm-checks">
+			<dt>Key share Alice received</dt>
+			<dd class="${r.shareSubstituted ? 'scenario-status--invalid' : 'scenario-status--valid'}">${r.offeredToAlice}${r.shareSubstituted ? ` — Eve’s, not Bob’s (B = ${r.B})` : ' — genuine'}</dd>
+			<dt>Did Alice check its signature?</dt>
+			<dd class="${r.signatureChecked ? 'scenario-status--valid' : 'scenario-status--invalid'}">${r.signatureChecked ? '✓ signed key shares' : '✗ accepted on sight'}</dd>
+			<dt>Ed25519 verify against Bob’s identity key</dt>
+			<dd class="${r.signatureWouldVerify ? 'scenario-status--valid' : 'scenario-status--invalid'}">${r.signatureWouldVerify ? '✓ VALID' : '✗ INVALID'}${r.signatureChecked ? '' : ' — computed here, but Alice never ran it'}</dd>
+			<dt>Control: same check over Bob’s genuine share</dt>
+			<dd class="${r.genuineShareVerifies ? 'scenario-status--valid' : 'scenario-status--invalid'}">${r.genuineShareVerifies ? '✓ VALID' : '✗ INVALID'}</dd>
+		</dl>
+	`;
+
+	if (r.aborted) {
+		return `
+			<div class="attack-card">
+				<p class="hero-metric-label" id="mitm-verdict">✓ Attack defeated — Alice stopped before sending</p>
+				${sigRows}
+				<p class="kx-footnote">${r.abortReason ?? ''}</p>
+				<p class="kx-footnote">Eve decrypted: <strong id="mitm-eve-read">nothing</strong>. Bob read: <strong id="mitm-bob-read">nothing</strong>.
+					The control row proves the check is not simply rejecting everything — over Bob’s genuine share it returns VALID.
+					<strong>This is the only thing that changed.</strong> Same p, g, secrets and substitution as the unauthenticated run;
+					the exchange itself is untouched. Authentication, not a better key exchange, is what stops it.</p>
+			</div>
+		`;
+	}
+
+	return `
+		<div class="attack-card">
+			<p class="hero-metric-label" id="mitm-verdict">${
+				r.eveRecovered !== null
+					? '✗ Eve read the message — and Bob’s decryption still succeeded'
+					: '✓ Eve’s key did not open the ciphertext'
+			}</p>
+			${sigRows}
+			<dl class="mitm-checks">
+				<dt>Alice’s AES key (HKDF over ${r.aliceShared})</dt>
+				<dd class="mono-inline">${shortHex(r.aliceLegKeyHex ?? '')}</dd>
+				<dt>Bob’s AES key (HKDF over ${r.bobShared})</dt>
+				<dd class="mono-inline">${shortHex(r.bobLegKeyHex ?? '')}</dd>
+				<dt>Ciphertext Alice sent</dt>
+				<dd class="mono-inline">${shortHex(r.aliceCiphertextHex ?? '')} ${copyChip(r.aliceCiphertextHex ?? '', 'ciphertext')}</dd>
+				<dt>Could Bob open <em>that</em> ciphertext?</dt>
+				<dd class="${r.bobCanOpenAliceCiphertext ? 'scenario-status--valid' : 'scenario-status--invalid'}">${r.bobCanOpenAliceCiphertext ? '✓ yes' : '✗ no — real AES-GCM tag failure'}</dd>
+				<dt>Eve decrypted</dt>
+				<dd class="${r.eveRecovered !== null ? 'scenario-status--invalid' : 'scenario-status--valid'}" id="mitm-eve-read">${escapeText(r.eveRecovered ?? 'nothing — the tag rejected her key')}</dd>
+				<dt>Ciphertext Eve forwarded</dt>
+				<dd class="mono-inline">${shortHex(r.relayedCiphertextHex ?? '')}</dd>
+				<dt>Bob read</dt>
+				<dd class="${r.bobSawAlteredText ? 'scenario-status--invalid' : ''}" id="mitm-bob-read">${escapeText(r.bobRecovered ?? 'nothing he could open')}</dd>
+			</dl>
+			<p class="kx-footnote">${
+				r.eveRecovered !== null
+					? `Eve re-encrypted ${r.bobSawAlteredText ? '<strong>her own text</strong>' : 'the message verbatim'} under the key she shares with Bob, so Bob’s tag verified and his decryption succeeded. Every cryptographic check on Bob’s side passed. The exchange was never broken — Alice simply agreed a key with the wrong party.`
+					: 'Eve could not read this run’s ciphertext, so nothing was relayed.'
+			}</p>
+			<p class="kx-footnote">Scale, stated plainly: the DH value feeding HKDF here ranges over at most ${r.legKeyEntropyBits} bits. The AES-GCM is real; the key’s entropy is not production-grade, and this panel does not claim otherwise.</p>
+		</div>
+	`;
+}
+
+function escapeText(s: string): string {
+	return s
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;');
 }
 
 // ---------- 4. ECDH playground -----------------------------------------------
