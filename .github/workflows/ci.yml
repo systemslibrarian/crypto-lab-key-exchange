@@ -58,7 +58,7 @@ jobs:
         run: npm run axe
 
       # Playwright suite in ./e2e: the WCAG gate plus the MitM relay exhibit's
-      # computed-outcome assertions. It boots its own preview on port 4224.
+      # computed-outcome assertions. It boots its own preview on port 4659.
       - name: Browser exhibit + WCAG suite (Playwright)
         run: npx playwright test
 

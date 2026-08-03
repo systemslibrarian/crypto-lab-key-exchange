@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
-const PORT = 4224;
+const PORT = 4659;
 const BASE = '/crypto-lab-key-exchange/';
 
 export default defineConfig({
