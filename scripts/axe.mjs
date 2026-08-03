@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const axeSource = readFileSync(require.resolve('axe-core'), 'utf8');
 
-const URL = 'http://localhost:4173/crypto-lab-key-exchange/';
+const URL = 'http://localhost:4674/crypto-lab-key-exchange/';
 
 async function audit(label, viewport, theme) {
 	console.log(`\n=== axe: ${label} (${theme}) ===`);

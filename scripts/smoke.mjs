@@ -1,8 +1,8 @@
 // Headless smoke test — desktop + mobile viewports, real interactions.
-// Run after `npm run preview` is serving on http://localhost:4173.
+// Run after `npm run preview` is serving on http://localhost:4674.
 import { chromium, devices } from 'playwright';
 
-const URL = 'http://localhost:4173/crypto-lab-key-exchange/';
+const URL = 'http://localhost:4674/crypto-lab-key-exchange/';
 
 function assert(cond, msg) {
 	if (!cond) {
