@@ -31,6 +31,14 @@
   --metric-bg: linear-gradient(180deg, rgba(18, 21, 26, 0.94), rgba(33, 26, 43, 0.94));
   --metric-fg: #f7f1eb;
   --metric-muted: rgba(247, 241, 235, 0.78);
+  /* Text-only step of --accent. --accent is a fill/border colour and measures
+     3.79:1 as label text on the hero's tinted "why" panel; this darker step of
+     the same hue clears AA at 5.2:1. Dark theme keeps --accent, which already
+     passes there. */
+  --accent-ink: #06556f;
+  /* Same split for the warning red: --accent-2 is a fill/border colour and
+     measured 4.31:1 as status text on its own tinted panel. */
+  --accent-2-ink: #b13232;
   --warning-bg: rgba(196, 59, 59, 0.1);
   --warning-fg: #6b1717;
   --warning-border: rgba(196, 59, 59, 0.16);
@@ -77,6 +85,8 @@
   --metric-bg: linear-gradient(180deg, rgba(8, 6, 14, 0.94), rgba(18, 14, 28, 0.94));
   --metric-fg: #e0dbe8;
   --metric-muted: rgba(200, 190, 220, 0.78);
+  --accent-ink: var(--accent);
+  --accent-2-ink: var(--accent-2);
   --warning-bg: rgba(240, 104, 104, 0.12);
   --warning-fg: #f8a8a8;
   --warning-border: rgba(240, 104, 104, 0.2);
@@ -172,7 +182,7 @@ button {
   padding: 10px 14px;
   border-radius: 999px;
   background-color: rgba(11, 127, 171, 0.12);
-  color: var(--accent);
+  color: var(--accent-ink);
   font-family: var(--mono);
   font-size: 0.84rem;
   text-decoration: none;
@@ -184,7 +194,7 @@ button {
 
 .eyebrow {
   margin: 0;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -233,12 +243,17 @@ button {
   color: var(--metric-fg);
 }
 
+/* --ink-soft, not --metric-muted. --metric-muted is near-white because it was
+   authored for .hero-metric-card, a dark card that no longer appears anywhere in
+   the markup (0 uses). The label class outlived it and is now used 31 times as a
+   generic small-caps label on ordinary panels — where in light theme it rendered
+   near-white on near-white at 1.09:1, effectively invisible. */
 .hero-metric-label {
   margin: 0;
   font-size: 0.82rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--metric-muted);
+  color: var(--ink-soft);
 }
 
 .hero-metric-value {
@@ -250,7 +265,7 @@ button {
 
 .hero-metric-note {
   margin: 0;
-  color: var(--metric-muted);
+  color: var(--ink-soft);
   line-height: 1.6;
 }
 
@@ -263,7 +278,7 @@ button {
 .cl-hero-sub{margin:.4rem 0 0;font-size:clamp(.9rem,1.6vw,1.05rem);letter-spacing:.01em;opacity:.85;color:var(--ink);}
 .cl-hero-desc{margin:.55rem 0 0;font-size:1rem;line-height:1.5;color:var(--ink-soft);max-width:60ch;}
 .cl-hero-why{flex:0 1 min(40%,26rem);min-width:min(100%,15rem);border:1px solid var(--line);border-radius:10px;padding:.85rem 1.05rem;background:color-mix(in oklab,var(--accent) 6%,transparent);}
-.cl-hero-why-label{display:block;font-size:.68rem;font-weight:700;letter-spacing:.14em;color:var(--accent);}
+.cl-hero-why-label{display:block;font-size:.68rem;font-weight:700;letter-spacing:.14em;color:var(--accent-ink);}
 .cl-hero-why-text{margin:.35rem 0 0;font-size:.95rem;line-height:1.5;color:var(--ink);}
 @media (max-width:640px){.cl-hero{flex-direction:column;}.cl-hero-main{flex-basis:auto;min-width:0;}.cl-hero-why{flex-basis:auto;width:100%;}}
 
@@ -286,7 +301,7 @@ button {
 
 .section-kicker {
   margin: 0 0 6px;
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -389,7 +404,7 @@ button {
 }
 
 .scenario-status--pending {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .scenario-status--valid {
@@ -397,7 +412,7 @@ button {
 }
 
 .scenario-status--invalid {
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
 }
 
 .table-shell {

@@ -1118,7 +1118,7 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 			</div>
 		</div>
 		${threatBadges(['passive', 'quantum', 'migration'], ['active'])}
-		<div class="hybrid-halves" aria-label="Where the two halves come from">
+		<div class="hybrid-halves" role="group" aria-label="Where the two halves come from">
 			<div class="hybrid-half hybrid-half--dh">
 				<p class="hybrid-half-label">Classical half</p>
 				<p class="hybrid-half-src">DH shared secret · from § 2 Diffie–Hellman</p>

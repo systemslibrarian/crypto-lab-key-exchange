@@ -57,7 +57,7 @@
 .gen-pill-year {
   font-family: var(--mono);
   font-size: 0.82rem;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .gen-pill.is-active .gen-pill-year {
@@ -246,12 +246,12 @@
 
 /* Exponent-tracking colours. Bold + colour so it never relies on hue alone. */
 .expo-a {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 
 .expo-b {
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
   font-weight: 700;
 }
 
@@ -536,7 +536,7 @@
 
 .size-bytes {
   font-family: var(--mono);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .size-bar-track {
@@ -612,7 +612,7 @@
 .hist-year {
   font-family: var(--mono);
   font-size: 1.05rem;
-  color: var(--accent);
+  color: var(--accent-ink);
   text-align: right;
   padding-right: 16px;
   position: relative;
@@ -631,7 +631,7 @@
 }
 
 .hist-item--attack .hist-year::after {
-  border-color: var(--accent-2);
+  border-color: var(--accent-2-ink);
 }
 
 .hist-item--standard .hist-year::after {
@@ -666,7 +666,7 @@
 
 /* Deployments */
 .deployment-link {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
   text-decoration: none;
 }
@@ -714,7 +714,7 @@
 }
 
 .ref-title {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
   text-decoration: none;
 }
@@ -746,7 +746,7 @@
 .glossary dt {
   font-family: var(--mono);
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 0.92rem;
 }
 
@@ -793,7 +793,7 @@
 
 .section-nav-link:hover {
   background-color: var(--panel-strong);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .section-nav-link:focus-visible {
@@ -1149,14 +1149,14 @@
 }
 
 .beginner-banner-link {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
   text-decoration: underline;
 }
 
 /* Production decision card */
 .decision-card {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
 }
 
 .decision-details > .decision-grid {
@@ -1177,7 +1177,7 @@
 .decision-summary::after {
   content: '▸ show';
   font-size: 0.8rem;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 
@@ -1329,7 +1329,10 @@
 }
 
 .shor-cycle-arrow {
-  color: var(--ink-soft);
+  /* This arrow sits inside the dark --mono-block-bg panel, which stays dark in
+     BOTH themes, so --ink-soft (a dark purple in light theme) measured 2.13:1
+     against it. The mono block has its own foreground token for exactly this. */
+  color: var(--mono-block-fg);
   font-size: 0.92rem;
 }
 
@@ -1480,7 +1483,7 @@
   min-width: 18px;
   height: 18px;
   margin: 0;
-  accent-color: var(--accent);
+  accent-color: var(--accent-ink);
 }
 
 .mlwe-matrix--off {
@@ -1528,7 +1531,7 @@
 }
 
 .mlwe-cell--miss .mlwe-cell-mark {
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
 }
 
 .mlwe-attack-card .kx-footnote {
@@ -1604,7 +1607,7 @@
 .hybrid-jump-link,
 .beginner-banner-link,
 .hybrid-half a {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
   text-decoration: underline;
 }
@@ -1712,7 +1715,7 @@ code {
   padding: 1px 6px;
   border-radius: 6px;
   background-color: rgba(11, 127, 171, 0.08);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 [data-theme="dark"] code {
