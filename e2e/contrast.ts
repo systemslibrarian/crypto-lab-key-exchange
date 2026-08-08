@@ -9,12 +9,11 @@ import type { Page } from '@playwright/test';
  *  - text over a background *gradient* — axe declines to compute a ratio and
  *    files the node under `incomplete`. The page background is a
  *    `linear-gradient` with two radial washes over it, `.cl-hero-why` is a
- *    `color-mix(in oklab, ...)` tint, and the metric surfaces are gradients, so
- *    much of this page's text composites onto something axe will not measure.
+ *    `color-mix(in oklab, ...)` tint, and the metric surfaces are gradients.
  *  - text faded by an ancestor's `opacity` — axe reads the declared `color`,
  *    which is not the colour that lands on screen. `.math-row` starts at
  *    `opacity: 0` until `row-enter ... forwards` runs — which is why the gate
- *    this replaced, injecting `animation: none`, was measuring invisible rows.
+ *    this replaced, injecting `animation: none`, measured invisible rows.
  *
  * So: walk every element that owns text, composite the real painted result
  * (translucent colours, gradient stops and opacity groups included), and
@@ -38,9 +37,9 @@ import type { Page } from '@playwright/test';
  * Three things this page forced on top of that, each of which otherwise makes
  * the helper report a ratio nothing on screen has:
  *
- *  - TEXT SCROLLED OUT OF A CLIPPING ANCESTOR PAINTS NOTHING. The scheme
- *    `.shor-resources` carries `min-width: 480px` inside a scroller, so at 380px
- *    much of it is clipped away. Content scrolled past the client box is not dimmed or partly
+ *  - TEXT SCROLLED OUT OF A CLIPPING ANCESTOR PAINTS NOTHING. `.shor-resources`
+ *    carries `min-width: 480px` inside a scroller, so at 380px much of it is
+ *    clipped away. Content scrolled past the client box is not dimmed or partly
  *    drawn — it is absent from the frame, and asking what colour it sits on has
  *    no answer. Its rect is still to the right of every ancestor's box, so the
  *    ancestor walk would find nothing behind it and fall through to white,
@@ -52,11 +51,10 @@ import type { Page } from '@playwright/test';
  *    and reports a fixed 1:1. There is no contrast requirement on ink that is
  *    never laid down.
  *
- *  - SVG PAINTS IN DOCUMENT ORDER, SO SIBLINGS CAN BE THE BACKGROUND. The three
- *    lab draws no SVG figures today, but the rule is kept because it is cheap and
- *    silent when unused: an `<svg>` draws a shape as a `<rect>` and then its
- *    label as a following `<text>`, so a label's backdrop is a PRECEDING
- *    SIBLING shape, not an ancestor. An ancestor-only
+ *  - SVG PAINTS IN DOCUMENT ORDER, SO SIBLINGS CAN BE THE BACKGROUND. The
+ *    elliptic-curve and Shor figures draw a shape as a `<rect>` or `<circle>`
+ *    and then its label as a following `<text>`, so a label's backdrop is a
+ *    PRECEDING SIBLING shape, not an ancestor. An ancestor-only
  *    walk would composite those labels onto the svg's own transparent background
  *    and report a ratio nothing on screen has. So for SVG text, any earlier
  *    sibling shape whose box contains the text box is composited first.
@@ -88,9 +86,8 @@ export async function auditContrast(page: Page): Promise<ContrastFailure[]> {
     /**
      * Resolve ANY CSS colour to straight-alpha sRGB via a 1×1 canvas.
      *
-     * A hand-rolled `rgba()` regex is not enough here: this page authors its
-     * mixes accents into surfaces with `color-mix()` in both `oklab` and `srgb`
-     * (the hero's "why it matters" wash is `color-mix(in oklab, ...)`), and
+     * A hand-rolled `rgba()` regex is not enough here: this page mixes accents
+     * into surfaces with `color-mix()` and paints gradient metric surfaces, and
      * Chromium reports those
      * to `getComputedStyle` unchanged rather than converting them to sRGB. A
      * regex that only understands `rgb()/rgba()` sees `null` for every one of
@@ -418,8 +415,14 @@ export async function auditContrast(page: Page): Promise<ContrastFailure[]> {
         sib = sib.previousElementSibling;
       }
       // Earliest sibling first — that is the order the compositor paints in.
+      // Only shapes that actually PAINT A FILL can be a backdrop. SVG's initial
+      // `fill` is black, and `getComputedStyle` reports that for stroke-only
+      // geometry too — so a <line> used as a grid rule or axis reads as an
+      // opaque black rectangle covering whatever it crosses. Compositing that
+      // invented a 3.82:1 failure for labels whose real ratio is 6.15:1.
+      const FILLED = ['rect', 'circle', 'ellipse', 'polygon', 'path'];
       for (const s of stack.reverse()) {
-        if (s.tagName === 'text' || s.tagName === 'title' || s.tagName === 'desc') continue;
+        if (!FILLED.includes(s.tagName.toLowerCase())) continue;
         if (!contains(rectOf(s), box)) continue;
         const scs = styleOf(s);
         const fill = resolve(scs.fill);
