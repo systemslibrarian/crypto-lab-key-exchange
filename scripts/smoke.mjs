@@ -33,16 +33,11 @@ async function run(label, deviceOpts) {
 	const skip = await page.locator('a.skip-link').first().textContent();
 	assert(skip?.trim() === 'Skip to content', 'skip link present');
 
-	// The shared crypto-lab header hides the lab's own #theme-toggle and provides
-	// the visible #cl-theme-toggle; both drive documentElement[data-theme].
-	const themeBtn = page.locator('#cl-theme-toggle');
-	await themeBtn.waitFor();
-	const initTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-	await themeBtn.click();
-	const afterTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-	assert(initTheme !== afterTheme, `theme toggle flips data-theme (${initTheme} → ${afterTheme})`);
-	assert(afterTheme === 'light' || afterTheme === 'dark', `data-theme set (${afterTheme})`);
-	await themeBtn.click(); // restore
+	// Dark is the only theme: the page pins it before first paint and the shared
+	// header carries no toggle, so there is nothing to flip.
+	const theme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+	assert(theme === 'dark', `page is pinned to the dark theme (${theme})`);
+	assert((await page.locator('#cl-theme-toggle').count()) === 0, 'no theme toggle in the shared header');
 
 	const tabs = page.locator('[role="tab"]');
 	const tabCount = await tabs.count();
