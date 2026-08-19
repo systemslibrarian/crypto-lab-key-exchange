@@ -21,7 +21,11 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # Must match ci.yml. `npm test` imports src/engine.ts directly and so
+          # runs under --experimental-strip-types, which only exists from Node
+          # 22.6. On Node 20 the flag is rejected outright ("node: bad option")
+          # and the engine gate cannot run at all.
+          node-version: 22
           cache: npm
       - run: npm ci
       # scripts/engine.test.mjs — the exchange engine itself: the DH/ECDH/
