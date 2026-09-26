@@ -28,7 +28,7 @@ The page is one long scrollable lesson with a sticky scroll-spy nav at the top. 
 
 ## Real-World Usage
 
-- **X25519** is the default key exchange in TLS 1.3 (RFC 8446) and in SSH.
+- **X25519** is a widely used TLS 1.3 key-share group (RFC 9846 recommends supporting it) and is used in SSH.
 - **The Signal Protocol** builds X3DH and the Double Ratchet on X25519.
 - **WireGuard** uses X25519 in its Noise-based handshake.
 - **ML-KEM** (FIPS 203) is NIST's standardized post-quantum KEM.
