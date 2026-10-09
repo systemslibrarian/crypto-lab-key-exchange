@@ -1,5 +1,5 @@
 // axe-core accessibility audit against the live preview build.
-import { chromium } from 'playwright';
+import { chromium } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 

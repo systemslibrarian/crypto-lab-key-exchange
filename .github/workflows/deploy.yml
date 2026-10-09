@@ -35,17 +35,17 @@ jobs:
       - name: Engine unit tests
         run: npm test
       - run: npm run build
+      - name: Verify locked browser runner
+        run: node scripts/browser-deps.mjs
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        run: npx --no-install playwright install --with-deps chromium
       # `test:a11y` is bare `playwright test`, so this runs mitm-relay.spec.ts
       # alongside a11y.spec.ts — the browser-level relay outcomes gate too.
       #
       # `npm run smoke` and `npm run axe` stay CI-only on purpose. They need a
-      # separately booted preview on port 4674 and a `npm install --no-save
-      # playwright axe-core` (neither is a declared devDependency here), and
-      # what they assert is already covered by the Playwright suite above.
-      # Putting that install on the publishing path trades a real gate for a
-      # new way for the deploy to fail.
+      # separately booted preview on port 4674, and
+      # what they assert is already covered by the locked Playwright suite
+      # above. Publishing does not need the separately managed preview server.
       - name: Browser relay and accessibility gate
         run: npm run test:a11y
       - uses: actions/upload-pages-artifact@v5

@@ -29,13 +29,13 @@ jobs:
         run: npm test
 
       # Headless browser checks need a real Chromium and a running
-      # preview server. We install Playwright + axe-core transiently,
-      # boot `vite preview`, wait for the port, run the smoke and axe
-      # suites, then tear the server down so the job exits cleanly.
-      - name: Install browser test deps
-        run: |
-          npm install --no-save --no-audit --no-fund playwright axe-core
-          npx playwright install --with-deps chromium
+      # preview server. Browser dependencies come from the reviewed lockfile;
+      # a transient latest Playwright can split the CLI from the test API.
+      - name: Verify locked browser runner
+        run: node scripts/browser-deps.mjs
+
+      - name: Install browser
+        run: npx --no-install playwright install --with-deps chromium
 
       - name: Boot preview server
         run: |
@@ -60,7 +60,7 @@ jobs:
       # Playwright suite in ./e2e: the WCAG gate plus the MitM relay exhibit's
       # computed-outcome assertions. It boots its own preview on port 4659.
       - name: Browser exhibit + WCAG suite (Playwright)
-        run: npx playwright test
+        run: npm run test:a11y
 
       - name: Stop preview
         if: always()
