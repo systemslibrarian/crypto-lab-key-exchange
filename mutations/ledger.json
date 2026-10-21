@@ -3,7 +3,7 @@
     "name": "salted-prefix independence",
     "file": "src/merkle/protocol.ts",
     "anchor": ": clearSuffix(random.bytes(BLOCK_BYTES), b);",
-    "replacement": ": new Uint8Array(BLOCK_BYTES);",
+    "replacement": ": clearSuffix(new Uint8Array(BLOCK_BYTES), b);",
     "test": "salted table rejects shared-prefix reuse; BROKEN appears only in textbook mode"
   },
   {
