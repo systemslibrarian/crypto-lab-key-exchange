@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { boot, driveAllStates, expectBaselineNotStale, NARROW } from './gate';
+import { boot, COMPACT, driveAllStates, expectBaselineNotStale, NARROW } from './gate';
 
 /**
  * WCAG A/AA regression gate.
@@ -35,6 +35,14 @@ for (const theme of ['dark'] as const) {
     await page.setViewportSize(NARROW);
     await boot(page, theme);
     await driveAllStates(page, `${theme} @380px`);
+    if (theme === 'dark') expectBaselineNotStale();
+  });
+
+  test(`no WCAG A/AA violations in ${theme} theme at 320px`, async ({ page }) => {
+    test.setTimeout(600_000);
+    await page.setViewportSize(COMPACT);
+    await boot(page, theme);
+    await driveAllStates(page, `${theme} @320px`);
     if (theme === 'dark') expectBaselineNotStale();
   });
 }

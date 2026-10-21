@@ -1,0 +1,44 @@
+[
+  {
+    "name": "salted-prefix independence",
+    "file": "src/merkle/protocol.ts",
+    "anchor": ": clearSuffix(random.bytes(BLOCK_BYTES), b);",
+    "replacement": ": new Uint8Array(BLOCK_BYTES);",
+    "test": "salted table rejects shared-prefix reuse; BROKEN appears only in textbook mode"
+  },
+  {
+    "name": "Bob check block",
+    "file": "src/merkle/protocol.ts",
+    "anchor": "const marker = cipher.dec(key, puzzle.cCheck);",
+    "replacement": "const marker = cipher.dec(key, puzzle.cIndex);",
+    "test": "Bob agreement is computed from both rendered secrets"
+  },
+  {
+    "name": "Eve operation counter",
+    "file": "src/merkle/eve-core.ts",
+    "anchor": "operations += 1;",
+    "replacement": "operations += 0;",
+    "test": "Eve counter matches its derived prediction and the payload is transcript-only"
+  },
+  {
+    "name": "two-secret agreement verdict",
+    "file": "src/merkle/ui.ts",
+    "anchor": "const agreed = equalBytes(aliceSecret, displayedBobSecret);",
+    "replacement": "const agreed = equalBytes(aliceSecret, aliceSecret);",
+    "test": "Bob agreement is computed from both rendered secrets"
+  },
+  {
+    "name": "displayed Eve prediction",
+    "file": "src/merkle/ui.ts",
+    "anchor": "setMeter('eve', undefined, expectedEveTrials(p.count, p.b));",
+    "replacement": "setMeter('eve', undefined, expectedEveTrials(p.count, p.b) + 1);",
+    "test": "displayed work formulas equal independently recomputed values"
+  },
+  {
+    "name": "quadratic-gap negative claim",
+    "file": "src/merkle/ui.ts",
+    "anchor": "Merkle puzzles give only a quadratic work gap: an eavesdropper who spends about L·|K| block-cipher operations recovers the secret. The protocol is not secure in the cryptographic sense.",
+    "replacement": "",
+    "test": "negative claim remains visible in the all-green recovery fixture"
+  }
+]

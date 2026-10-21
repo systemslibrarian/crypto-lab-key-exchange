@@ -34,6 +34,7 @@ import {
 	SIZES,
 	type Generation,
 } from './data.ts';
+import { renderPuzzles } from './merkle/ui.ts';
 
 function el<K extends keyof HTMLElementTagNameMap>(
 	tag: K,
@@ -2136,6 +2137,7 @@ interface NavLink {
 const NAV_LINKS: NavLink[] = [
 	{ hash: 'decision', label: 'Decide' },
 	{ hash: 'generations', label: 'Generations' },
+	{ hash: 'puzzles', label: 'Puzzles' },
 	{ hash: 'dh', label: 'DH' },
 	{ hash: 'mitm', label: 'MitM' },
 	{ hash: 'ecdh', label: 'ECDH' },
@@ -2325,6 +2327,7 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderBeginnerBanner());
 	shell.appendChild(renderDecisionCard());
 	shell.appendChild(renderTimeline());
+	shell.appendChild(renderPuzzles());
 	const dhSection = renderDhPlayground();
 	shell.appendChild(dhSection);
 	shell.appendChild(renderMitm());

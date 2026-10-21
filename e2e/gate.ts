@@ -8,6 +8,7 @@ export const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
 /** A phone-width viewport, for the WCAG 1.4.10 reflow half of the gate. */
 export const NARROW = { width: 380, height: 800 };
+export const COMPACT = { width: 320, height: 800 };
 
 /**
  * Shared machinery for the WCAG gate.
@@ -106,6 +107,10 @@ export async function boot(page: Page, theme: 'dark' | 'light'): Promise<void> {
 
   await expect(page.locator('#dh-output')).toBeVisible();
   await expect(page.locator('#mitm-relay')).toBeVisible();
+  await expect(page.locator('#puzzles')).toBeVisible();
+  await expect(page.locator('#puzzle-b-range')).toHaveCount(1);
+  await expect(page.locator('#puzzle-l-range')).toHaveCount(1);
+  await expect(page.locator('#puzzle-textbook')).not.toBeChecked();
 
   await settle(page);
   await expectNotBlank(page, `${theme} first paint`);
@@ -307,6 +312,17 @@ export async function scan(page: Page, label: string): Promise<void> {
  */
 export async function driveAllStates(page: Page, theme: string): Promise<void> {
   await scan(page, `${theme} / first paint`);
+
+  // Merkle-puzzle prequel: safe independent form, honest agreement, then the
+  // transcript-only eavesdropper. All states are reached through page controls.
+  await expect(page.locator('#puzzle-table-verdict[data-verdict="puzzle-table"]')).toBeVisible();
+  await page.locator('#puzzle-bob').click();
+  await expect(page.locator('#puzzle-agreement[data-verdict="puzzle-agreement"]')).toBeVisible();
+  await scan(page, `${theme} / Merkle puzzles honest agreement`);
+
+  await page.locator('#puzzle-eve').click();
+  await expect(page.locator('#puzzle-eve-verdict[data-verdict="puzzle-eve"]')).toBeVisible({ timeout: 120_000 });
+  await scan(page, `${theme} / Merkle puzzles transcript recovery`);
 
   await page.locator('#dh-attack').click();
   await expect(page.locator('#dh-attack-output')).not.toBeEmpty();

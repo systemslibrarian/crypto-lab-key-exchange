@@ -55,6 +55,40 @@ async function run(label, deviceOpts) {
 	const activeAfterHome = await page.evaluate(() => document.activeElement?.getAttribute('data-id'));
 	assert(activeAfterHome === 'dh', `Home moves focus to first tab (got ${activeAfterHome})`);
 
+	// Merkle-puzzle prequel: use the number inputs (keyboard fallbacks), run the
+	// honest exchange, the transcript-only break, the broken textbook form, and
+	// cancellation of a larger run.
+	await page.locator('#puzzle-b-number').fill('8');
+	await page.locator('#puzzle-l-number').fill('256');
+	await page.locator('#puzzle-build').click();
+	await page.waitForFunction(() => /table matches 0 puzzles/.test(document.querySelector('#puzzle-table-verdict')?.textContent ?? ''));
+	assert(true, 'independent Merkle puzzles defeat the shared-prefix table');
+	await page.locator('#puzzle-bob').click();
+	await page.waitForFunction(() => /Alice and Bob hold the same/.test(document.querySelector('#puzzle-agreement')?.textContent ?? ''));
+	assert(true, 'Merkle Alice and Bob agree byte for byte');
+	await page.locator('#puzzle-eve').click();
+	await page.waitForFunction(() => /RECOVERED BY THE EAVESDROPPER/.test(document.querySelector('#puzzle-eve-verdict')?.textContent ?? ''));
+	assert(true, 'Merkle Eve recovers from transcript-only work');
+	await page.locator('#puzzle-corrupt-bob').click();
+	const corruptedAgreement = await page.locator('#puzzle-agreement-headline').textContent();
+	assert(/NOT AGREED/.test(corruptedAgreement ?? ''), 'one changed Bob byte retires the agreement');
+
+	await page.locator('#puzzle-textbook').check();
+	await page.locator('#puzzle-build').click();
+	const brokenTable = await page.locator('#puzzle-table-verdict').textContent();
+	assert(/BROKEN — one table/.test(brokenTable ?? ''), 'textbook form is visibly broken by one table');
+	await page.locator('#puzzle-textbook').uncheck();
+	await page.locator('#puzzle-build').click();
+
+	await page.locator('#puzzle-b-number').fill('14');
+	await page.locator('#puzzle-l-number').fill('4096');
+	await page.locator('#puzzle-build').click();
+	await page.locator('#puzzle-bob').click();
+	await page.locator('#puzzle-eve').click();
+	await page.locator('#puzzle-cancel').click();
+	const cancelledEve = await page.locator('#puzzle-eve-verdict').textContent();
+	assert(/cancelled/.test(cancelledEve ?? ''), 'Merkle Eve run can be cancelled');
+
 	// DH playground recomputes
 	const dhA = page.locator('#dh-a');
 	await dhA.fill('7');
@@ -123,11 +157,11 @@ async function run(label, deviceOpts) {
 	assert(toyBanners >= 2, `toy-parameter warning banners present (got ${toyBanners})`);
 
 	const navLinks = await page.locator('.section-nav-link').count();
-	assert(navLinks === 15, `section nav has 15 links (got ${navLinks})`);
+	assert(navLinks === 16, `section nav has 16 links (got ${navLinks})`);
 	const sizeRows = await page.locator('.size-row').count();
 	assert(sizeRows === 5, `sizes section has 5 rows (got ${sizeRows})`);
 	const histItems = await page.locator('.hist-item').count();
-	assert(histItems === 9, `history timeline has 9 items (got ${histItems})`);
+	assert(histItems === 10, `history timeline has 10 items (got ${histItems})`);
 	const deployments = await page.locator('#production .panel-card').count();
 	assert(deployments === 5, `production section has 5 deployments (got ${deployments})`);
 	const refs = await page.locator('.ref-row').count();
@@ -143,12 +177,13 @@ async function run(label, deviceOpts) {
 	const copyChips = await page.locator('.copy-chip').count();
 	assert(copyChips >= 3, `copy chips on key outputs (got ${copyChips})`);
 
-	// Keyboard shortcuts: pressing "5" jumps to the 5th nav link (ECDH).
+	// Puzzles is the historical prequel after Generations, so every later
+	// digit shortcut shifts by one: ECDH is now the sixth nav link.
 	await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
-	await page.keyboard.press('5');
+	await page.keyboard.press('6');
 	await page.waitForTimeout(400);
-	const hashAfter5 = await page.evaluate(() => window.location.hash);
-	assert(hashAfter5 === '#ecdh', `key '5' jumps to ECDH (hash=${hashAfter5})`);
+	const hashAfter6 = await page.evaluate(() => window.location.hash);
+	assert(hashAfter6 === '#ecdh', `key '6' jumps to ECDH (hash=${hashAfter6})`);
 
 	// "?" opens help dialog
 	await page.keyboard.press('?');

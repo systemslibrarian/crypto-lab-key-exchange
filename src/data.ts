@@ -133,6 +133,12 @@ export const HISTORY: HistoryEvent[] = [
 		body: 'Whitfield Diffie and Martin Hellman publish "New Directions in Cryptography" — the first public-key protocol for agreeing a shared secret over an open channel.',
 	},
 	{
+		year: 1978,
+		kind: 'invention',
+		title: 'Merkle puzzles',
+		body: 'Ralph Merkle, "Secure Communications over Insecure Channels", Communications of the ACM 21(4), April 1978 — key agreement from a symmetric cipher alone, with only a quadratic work gap.',
+	},
+	{
 		year: 1985,
 		kind: 'invention',
 		title: 'Elliptic-curve cryptography proposed',
