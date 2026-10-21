@@ -36,6 +36,7 @@ export interface BobResult {
 	secret: Uint8Array;
 	trials: number;
 	auditOps: number;
+	auxiliaryOps: number;
 	matchingKeys: number;
 	puzzlePosition: number;
 }
@@ -96,7 +97,7 @@ function decodeIndex(block: Uint8Array, count: number): number {
 		if (block[i] !== 0) throw new PuzzleIntegrityError('bad-index', 'decrypted index has a non-zero prefix');
 	}
 	const index = new DataView(block.buffer, block.byteOffset, block.byteLength).getUint32(12, false);
-	if (index >= count) throw new PuzzleIntegrityError('bad-index', 'decrypted index is outside Alice’s puzzle list');
+	if (index < 1 || index > count) throw new PuzzleIntegrityError('bad-index', 'decrypted index is outside Alice’s puzzle list');
 	return index;
 }
 
@@ -137,7 +138,9 @@ export function buildPuzzles(
 		aliceOps += 1;
 		const cSecret = cipher.enc(key, secret);
 		aliceOps += 1;
-		const cIndex = cipher.enc(key, encodeIndex(index));
+		// Index zero is reserved for the check block. Encrypting it as a tag
+		// would expose one shuffled puzzle via cIndex === cCheck.
+		const cIndex = cipher.enc(key, encodeIndex(index + 1));
 		aliceOps += 1;
 		const cCheck = cipher.enc(key, ZERO_BLOCK);
 		puzzles.push({ prefix, cSecret, cIndex, cCheck });
@@ -187,13 +190,17 @@ export function bobSolve(
 		throw new PuzzleIntegrityError('ambiguous-key', `${matchingKeys} weak keys pass the check block; restart required`);
 	}
 
+	let auxiliaryOps = 0;
+	auxiliaryOps += 1;
 	const index = decodeIndex(cipher.dec(firstKey, puzzle.cIndex), puzzles.length);
+	auxiliaryOps += 1;
 	const secret = cipher.dec(firstKey, puzzle.cSecret);
-	return { index, secret, trials, auditOps, matchingKeys, puzzlePosition };
+	return { index, secret, trials, auditOps, auxiliaryOps, matchingKeys, puzzlePosition };
 }
 
 export function aliceLookup(state: AliceState, index: number): Uint8Array {
-	const secret = state.secrets[index];
+	if (!Number.isInteger(index) || index < 1 || index > state.count) throw new RangeError('published index is outside Alice’s puzzle list');
+	const secret = state.secrets[index - 1];
 	if (!secret) throw new RangeError('published index is outside Alice’s puzzle list');
 	return secret.slice();
 }

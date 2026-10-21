@@ -70,6 +70,10 @@ jobs:
             rm preview.pid
           fi
 
+      # Run after removing preview.pid: mutations require committed clean source.
+      - name: Merkle behavioural mutation gate
+        run: npm run test:mutations
+
   # Dependabot only. Depends on every gate job in this workflow, so a bump can
   # only merge itself once this lab's whole PR gate went green. Majors are
   # excluded -- the 2026-08-18 batch had to hold back 109 bumps and they were

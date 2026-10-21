@@ -18,7 +18,7 @@ function decodeIndex(block: Uint8Array, count: number): number | undefined {
 	if (block.length !== 16) return undefined;
 	for (let i = 0; i < 12; i += 1) if (block[i] !== 0) return undefined;
 	const index = new DataView(block.buffer, block.byteOffset, block.byteLength).getUint32(12, false);
-	return index < count ? index : undefined;
+	return index >= 1 && index <= count ? index : undefined;
 }
 
 /**

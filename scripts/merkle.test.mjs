@@ -111,7 +111,7 @@ test('Eve receives transcript fields only — never weak suffixes, secrets, or B
 	assert.equal('puzzlePosition' in payload.transcript, false);
 });
 
-test('Eve’s toy-run mean falls within a tolerance derived from product variance', async () => {
+test('Eve’s toy-run mean falls within a tolerance derived from independent search-cost variance', async () => {
 	const samples = 32;
 	const observations = [];
 	for (let run = 0; run < samples; run += 1) {

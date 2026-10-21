@@ -6,6 +6,14 @@ An interactive walk through five generations of key exchange: Diffie–Hellman (
 
 The Merkle section uses real single-block AES-128 from [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers). Its safe default is a clearly labelled lab modification: each puzzle has an independent public key prefix. The shared-zero-prefix form printed in Boneh–Shoup v0.6 §10.8 remains available only behind a **BROKEN** switch because one reusable `E(k, 0)` table solves every puzzle. Neither form is production cryptography.
 
+Puzzle indices run from 1 through L, reserving zero for the check block. This
+prevents identifying a shuffled puzzle just by comparing its index and check
+ciphertexts. Bob reports first-match trials, the uniqueness audit, and both
+follow-up AES decryptions separately. Eve's variance uses a sum of independent
+puzzle-search costs. A cancelled, rebuilt, or replaced run cannot update the
+current verdict, including when Worker is unavailable and work falls back to the
+main thread.
+
 The first three public-key generations rely on the hardness of the discrete-log problem in Z_p* or on an elliptic curve, all of which Shor's algorithm breaks in polynomial time on a fault-tolerant quantum computer. ML-KEM rests on Module-LWE over polynomial rings — a lattice problem Shor doesn't touch — and hybrid is the bridge: derive a session key from both halves so neither failing alone breaks the channel. The DH and ECDH primitives are implemented from scratch in TypeScript with deliberately tiny parameters so the math is visible; the discrete-log attack on Z_p* is real and runs in milliseconds. The ML-KEM step is **real ML-KEM-768 (FIPS 203)** from [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) — production-grade parameters, full Module-LWE, NTT, and compression — and the hybrid combine mixes an actual X25519 secret with the ML-KEM secret through HKDF, matching the shape of the production X25519MLKEM768 combiner.
 
 ## Exhibits
@@ -104,7 +112,8 @@ What is tested, what is intentionally not tested, and how to run each:
 | Merkle puzzle + AES unit tests | `npm test` | The FIPS 197-upd1 Appendix B AES-128 block, all four blocks from NIST SP 800-38A F.1.1, 100 Alice/Bob agreements, transcript-only Eve input, the 1,024/1,024 textbook table break, the salted-table negative control, ambiguity restart, cap/cancel paths, exact counters, and a repeated Eve mean checked against variance-derived tolerance. |
 | Browser smoke | `npm run smoke` | Playwright/Chromium on three viewports (desktop 1280, iPhone 12, narrow 360×740). Exercises every interactive control end-to-end, the URL-hash deep-links, the keyboard shortcuts, the copy-to-clipboard chips, the EC curve plot, the MitM panel, the Shor cycle, and the Module-LWE matrices. Asserts no console errors and no horizontal overflow. |
 | Browser exhibit + WCAG suite | `npm run test:a11y` | The Playwright suite in `e2e/`: the WCAG A/AA gate at desktop, 380px, and 320px with Merkle and MitM results rendered; computed MitM outcomes; and `claims.spec.ts`, created for this extension, which independently recomputes every displayed Merkle work claim, reads both secrets, inspects the real worker payload, checks retirement/no-op behaviour, and reaches the §4.1d recovery fixture. It also cross-checks eight random noble AES blocks against WebCrypto AES-CBC's zero-IV first block. |
-| Merkle verdict mutations | `npm run test:mutations` | Six concrete patches in `mutations/ledger.json`. The runner requires a green named control, a non-empty source diff, a successful build, a moved production-bundle hash, that named test red with `--retries=0`, and a restored matching bundle plus green control. |
+| Merkle review regressions | `npm test` | Exhaustive index/check separation, enumeration of independent search-cost distributions, and instrumented AES-call accounting. Mutation-report fixtures reject zero tests, browser crashes, setup failures, timeouts, signals, skips, retries, and unrelated assertions. |
+| Merkle verdict mutations | `npm run test:mutations` | Ten concrete patches in `mutations/ledger.json`; requires a clean committed tree. Each must compile, move the JavaScript bundle hash, and fail an assertion in its exact owning test, with a green control and `--retries=0`. Restoration rebuilds the original bundle and reruns the green owning test even when the mutant fails unexpectedly. Both CI and deployment enforce this gate. |
 | Accessibility audit | `npm run axe` | axe-core WCAG 2.1 A/AA against six configurations (3 viewport widths × 2 themes). Currently zero violations. |
 | Full local CI pass | `npm run verify` | Runs `build` + `test` and then expects you to run `smoke` / `axe` against a `preview` server. (CI runs all of them automatically on every push and PR.) |
 

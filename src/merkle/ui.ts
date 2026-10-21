@@ -61,6 +61,7 @@ function samplePuzzleHtml(state: AliceState): string {
 }
 
 function logWidth(value: number): string {
+	if (value <= 0) return '0%';
 	const percentage = Math.min(100, Math.max(2, (Math.log2(Math.max(1, value)) / 24) * 100));
 	return `${percentage.toFixed(1)}%`;
 }
@@ -100,7 +101,7 @@ export function renderPuzzles(): HTMLElement {
 			</div>
 			<div class="puzzle-control-pair">
 				<label for="puzzle-l-range">Puzzle count <var>L</var>: <output id="puzzle-l-output" for="puzzle-l-range puzzle-l-number">1,024</output></label>
-				<input id="puzzle-l-range" type="range" min="256" max="4096" step="256" value="1024" />
+				<input id="puzzle-l-range" type="range" min="256" max="4096" step="1" value="1024" />
 				<label class="puzzle-number-label" for="puzzle-l-number">Keyboard value</label>
 				<input id="puzzle-l-number" type="number" min="256" max="4096" step="1" value="1024" inputmode="numeric" />
 			</div>
@@ -121,7 +122,7 @@ export function renderPuzzles(): HTMLElement {
 			<article class="panel-card">
 				<p class="hero-metric-label">1 · Alice builds and shuffles</p>
 				<h3>Three AES blocks per puzzle</h3>
-				<p class="panel-copy">Each ciphertext holds a 128-bit secret, its index, or an all-zero check block. Only the public prefix and ciphertexts cross the channel.</p>
+				<p class="panel-copy">Each ciphertext holds a 128-bit secret, an index from 1 through L, or an all-zero check block. Zero is reserved for the check, so the index ciphertext cannot identify a puzzle by matching it. Only the public prefix and ciphertexts cross the channel.</p>
 				<ul id="puzzle-samples" class="puzzle-samples" aria-label="First three shuffled puzzles"></ul>
 			</article>
 			<article class="panel-card">
@@ -171,7 +172,7 @@ export function renderPuzzles(): HTMLElement {
 					<code id="puzzle-eve-formula">((L + 1) / 2) × ((|K| + 1) / 2)</code>
 				</div>
 			</div>
-			<p id="puzzle-counter-note" class="panel-copy">Bob’s displayed trial count stops at the first match; the full-space uniqueness audit is reported with his result. Eve’s counter counts marker-decryption trials; post-match index and secret decryptions are reported separately.</p>
+			<p id="puzzle-counter-note" class="panel-copy">Bob’s displayed trial count stops at the first match; the full-space uniqueness audit and two follow-up decryptions are reported with his result. Eve’s counter counts marker-decryption trials; post-match index and secret decryptions are reported separately.</p>
 		</article>
 		<article class="panel-card puzzle-scale-card">
 			<p class="hero-metric-label">At real scale · computed, not run</p>
@@ -236,6 +237,8 @@ export function renderPuzzles(): HTMLElement {
 	}
 
 	function cancelEve(): void {
+		// Invalidates queued worker messages and asynchronous fallback callbacks.
+		runId += 1;
 		if (worker) {
 			worker.postMessage({ type: 'cancel', runId });
 			worker.terminate();
@@ -264,6 +267,7 @@ export function renderPuzzles(): HTMLElement {
 		eveVerdict.textContent = 'Verdict retired — rebuild with the new parameters.';
 		retired.hidden = false;
 		retired.textContent = `Previous results retired: ${reason}`;
+		status.textContent = retired.textContent;
 		setMeter('alice', undefined, 0);
 		setMeter('bob', undefined, 0);
 		setMeter('eve', undefined, 0);
@@ -303,6 +307,7 @@ export function renderPuzzles(): HTMLElement {
 			<span>Alice: <code id="puzzle-alice-secret">${toHex(aliceSecret)}</code></span>
 			<span>Bob: <code id="puzzle-bob-secret">${toHex(displayedBobSecret)}</code></span>
 			<span>Uniqueness audit: ${formatCount(bob.auditOps)} additional AES decryptions after the first match.</span>
+			<span>Index and secret: <code id="puzzle-bob-auxiliary">${bob.auxiliaryOps}</code> follow-up AES decryptions.</span>
 		`;
 	}
 
@@ -337,7 +342,7 @@ export function renderPuzzles(): HTMLElement {
 
 			tableVerdict.dataset.verdict = 'puzzle-table';
 			if (p.mode === 'textbook') {
-				const result = tableAttack(alice.puzzles, p.b, 0);
+				const result = tableAttack(alice.puzzles, p.b, 1);
 				tableVerdict.className = 'puzzle-verdict puzzle-verdict--alarm';
 				tableVerdict.innerHTML = `<strong>BROKEN — one table of ${formatCount(result.tableOps)} encryptions solved all ${formatCount(result.solved)} puzzles</strong><span>${formatCount(result.lookupOps)} lookups and ${formatCount(result.decryptOps)} follow-up AES decryptions recovered every index and secret.</span>`;
 				status.textContent = `Built ${formatCount(p.count)} textbook-form puzzles. BROKEN: shared key space, fixed check block.`;
@@ -348,7 +353,7 @@ export function renderPuzzles(): HTMLElement {
 					: 'puzzle-verdict puzzle-verdict--alarm';
 				tableVerdict.innerHTML = result.matches === 0
 					? `<strong>SAFE — table matches 0 puzzles — puzzles are independent</strong><span>The same ${formatCount(result.tableOps)}-entry zero-prefix table was tried against all ${formatCount(result.lookupOps)} shuffled puzzles.</span>`
-					: `<strong>INTEGRITY ERROR — zero-prefix table matched ${formatCount(result.matches)} salted puzzles</strong>`;
+					: `<strong>TABLE MATCH — zero-prefix table matched ${formatCount(result.matches)} salted puzzles</strong><span>Independent random prefixes or check values can collide by chance; this run did not pass the zero-match control.</span>`;
 				status.textContent = `Built and shuffled ${formatCount(p.count)} independent-prefix puzzles in memory.`;
 			}
 		} catch (error) {
@@ -362,6 +367,12 @@ export function renderPuzzles(): HTMLElement {
 
 	function solveBob(): void {
 		if (!alice) return;
+		cancelEve();
+		eveRecovered = false;
+		eveVerdict.removeAttribute('data-verdict');
+		eveVerdict.className = 'puzzle-verdict';
+		eveVerdict.textContent = 'Eve’s previous result was retired: Bob is selecting a new puzzle.';
+		setMeter('eve', undefined, expectedEveTrials(alice.count, alice.b));
 		status.textContent = 'Bob is trying real AES keys…';
 		try {
 			bob = bobSolve(alice.puzzles, alice.b);
@@ -387,7 +398,9 @@ export function renderPuzzles(): HTMLElement {
 		}
 	}
 
-	function finishEve(result: EveResult, fallback: boolean): void {
+	function finishEve(result: EveResult, fallback: boolean, currentRun: number): void {
+		if (currentRun !== runId) return;
+		runId += 1;
 		worker = undefined;
 		cancelButton.disabled = true;
 		eveButton.disabled = false;
@@ -404,30 +417,54 @@ export function renderPuzzles(): HTMLElement {
 			eveRecovered = false;
 			renderAgreement();
 			eveVerdict.className = 'puzzle-verdict puzzle-verdict--alarm';
-			eveVerdict.innerHTML = `<strong>INCOMPLETE — stopped at the ${formatCount(result.operations)}-trial cap</strong><span>The expected work above is extrapolated from the uniform-choice formula; no recovery is claimed.</span>`;
+			eveVerdict.innerHTML = `<strong>INCOMPLETE — stopped at the ${formatCount(result.operations)}-trial cap</strong><span>${fallback ? 'Main-thread fallback cap was used. ' : ''}The expected work above is extrapolated from the uniform-choice formula; no recovery is claimed.</span>`;
 			status.textContent = 'Eve’s run stopped at its cap; the larger value is extrapolated, not measured.';
 		} else {
+			eveRecovered = false;
+			renderAgreement();
 			eveVerdict.className = 'puzzle-verdict puzzle-verdict--alarm';
-			eveVerdict.textContent = 'INTEGRITY ERROR — Eve exhausted the transcript without finding Bob’s index.';
+			eveVerdict.textContent = result.status === 'recovered'
+				? 'INTEGRITY ERROR — Eve’s recovered secret differs from Bob’s secret.'
+				: 'INTEGRITY ERROR — Eve exhausted the transcript without finding Bob’s index.';
 		}
 	}
 
-	async function runFallback(payload: EvePayload): Promise<void> {
+	async function runFallback(payload: EvePayload, currentRun: number): Promise<void> {
 		const fallbackPayload = { ...payload, cap: Math.min(payload.cap, FALLBACK_CAP) };
-		const result = await eveBruteForce(fallbackPayload, {
-			onProgress(progress) {
-				setMeter('eve', progress.operations, alice ? expectedEveTrials(alice.count, alice.b) : 0);
-			},
-		});
-		finishEve(result, true);
+		try {
+			const result = await eveBruteForce(fallbackPayload, {
+				isCancelled: () => currentRun !== runId,
+				onProgress(progress) {
+					if (currentRun !== runId) return;
+					setMeter('eve', progress.operations, expectedEveTrials(payload.transcript.puzzles.length, payload.b));
+				},
+			});
+			finishEve(result, true, currentRun);
+		} catch (error) {
+			if (currentRun !== runId) return;
+			runId += 1;
+			cancelButton.disabled = true;
+			eveButton.disabled = !bob;
+			eveVerdict.textContent = `Fallback error: ${error instanceof Error ? error.message : String(error)}`;
+		}
 	}
 
 	function runEve(): void {
 		if (!alice || !bob) return;
 		cancelEve();
-		runId += 1;
 		const currentRun = runId;
 		const payload = makeEvePayload(alice.puzzles, bob.index, alice.b, EVE_CAP);
+		const prediction = expectedEveTrials(alice.count, alice.b);
+		function startFallback(): void {
+			if (currentRun !== runId) return;
+			worker?.terminate();
+			worker = undefined;
+			// Retire this worker's lease before starting the fallback; a late
+			// worker event cannot complete or overwrite the fallback either.
+			runId += 1;
+			status.textContent = `Worker unavailable; running a labelled main-thread fallback capped at ${formatCount(FALLBACK_CAP)} trials.`;
+			void runFallback(payload, runId);
+		}
 		eveRecovered = false;
 		renderAgreement();
 		eveButton.disabled = true;
@@ -435,37 +472,35 @@ export function renderPuzzles(): HTMLElement {
 		eveVerdict.removeAttribute('data-verdict');
 		eveVerdict.className = 'puzzle-verdict';
 		eveVerdict.textContent = 'Eve is trying the public transcript…';
+		setMeter('eve', 0, prediction);
 		status.textContent = 'Eve is running in a worker. You can cancel without losing Alice and Bob’s result.';
 		try {
 			worker = new Worker(new URL('./eve.worker.ts', import.meta.url), { type: 'module' });
 			worker.onmessage = (event: MessageEvent<EveWorkerMessage>) => {
 				const message = event.data;
-				if (message.runId !== currentRun) return;
+				if (currentRun !== runId || message.runId !== currentRun) return;
 				if (message.type === 'progress') {
-					setMeter('eve', message.progress.operations, expectedEveTrials(alice!.count, alice!.b));
+					setMeter('eve', message.progress.operations, prediction);
 					status.textContent = `Eve: ${formatCount(message.progress.operations)} AES trials across ${formatCount(message.progress.puzzlesTried)} puzzles…`;
 				} else if (message.type === 'result') {
 					worker?.terminate();
-					finishEve(message.result, false);
+					finishEve(message.result, false, currentRun);
 				} else {
 					worker?.terminate();
 					worker = undefined;
+					runId += 1;
 					cancelButton.disabled = true;
 					eveButton.disabled = false;
 					eveVerdict.textContent = `Worker error: ${message.message}`;
 				}
 			};
-			worker.onerror = () => {
-				worker?.terminate();
-				worker = undefined;
-				status.textContent = `Worker unavailable; running a labelled main-thread fallback capped at ${formatCount(FALLBACK_CAP)} trials.`;
-				void runFallback(payload);
+			worker.onerror = (event) => {
+				event.preventDefault();
+				startFallback();
 			};
 			worker.postMessage({ type: 'run', runId: currentRun, payload });
 		} catch {
-			worker = undefined;
-			status.textContent = `Worker unavailable; running a labelled main-thread fallback capped at ${formatCount(FALLBACK_CAP)} trials.`;
-			void runFallback(payload);
+			startFallback();
 		}
 	}
 
@@ -474,11 +509,20 @@ export function renderPuzzles(): HTMLElement {
 	eveButton.addEventListener('click', runEve);
 	cancelButton.addEventListener('click', () => {
 		cancelEve();
+		eveRecovered = false;
+		renderAgreement();
+		eveVerdict.dataset.verdict = 'puzzle-eve';
+		eveVerdict.className = 'puzzle-verdict puzzle-verdict--alarm';
 		eveVerdict.textContent = 'INCOMPLETE — Eve’s run was cancelled; no recovery is claimed.';
 		status.textContent = 'Eve’s run was cancelled. Alice and Bob’s result remains current.';
 	});
 	corruptButton.addEventListener('click', () => {
 		if (!bob) return;
+		cancelEve();
+		eveVerdict.removeAttribute('data-verdict');
+		eveVerdict.className = 'puzzle-verdict';
+		eveVerdict.textContent = 'Eve’s previous result was retired: Bob’s displayed copy changed.';
+		setMeter('eve', undefined, alice ? expectedEveTrials(alice.count, alice.b) : 0);
 		displayedBobSecret = bob.secret.slice();
 		displayedBobSecret[0] = displayedBobSecret[0]! ^ 0x01;
 		eveRecovered = false;

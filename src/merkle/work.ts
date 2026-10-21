@@ -6,15 +6,16 @@ export function expectedEveTrials(count: number, b: number): number {
 	return ((count + 1) / 2) * expectedBobTrials(b);
 }
 
-function uniformSecondMoment(size: number): number {
-	return ((size + 1) * (2 * size + 1)) / 6;
-}
-
-/** Variance of X·Y for independent X∼U{1..L}, Y∼U{1..|K|}. */
+/**
+ * Eve pays an independent U{1..|K|} search cost for each of J puzzles,
+ * where J∼U{1..L}. Total variance of that random sum is
+ * E[J] Var[cost] + Var[J] E[cost]², rather than the variance of J·cost.
+ */
 export function eveTrialVariance(count: number, b: number): number {
 	const keySpace = 2 ** b;
-	const mean = expectedEveTrials(count, b);
-	return uniformSecondMoment(count) * uniformSecondMoment(keySpace) - mean ** 2;
+	const meanCost = expectedBobTrials(b);
+	return ((count + 1) / 2) * ((keySpace ** 2 - 1) / 12)
+		+ ((count ** 2 - 1) / 12) * meanCost ** 2;
 }
 
 /** Six standard errors: derived from the distribution, not a picked percentage. */

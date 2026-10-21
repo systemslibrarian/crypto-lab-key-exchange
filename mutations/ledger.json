@@ -40,5 +40,33 @@
     "anchor": "Merkle puzzles give only a quadratic work gap: an eavesdropper who spends about L·|K| block-cipher operations recovers the secret. The protocol is not secure in the cryptographic sense.",
     "replacement": "",
     "test": "negative claim remains visible in the all-green recovery fixture"
+  },
+  {
+    "name": "independent search-cost variance",
+    "file": "src/merkle/work.ts",
+    "anchor": "return ((count + 1) / 2) * ((keySpace ** 2 - 1) / 12)",
+    "replacement": "return ((count + 1) / 2) * 0 * ((keySpace ** 2 - 1) / 12)",
+    "test": "displayed Eve tolerance follows independent search costs for each solved puzzle"
+  },
+  {
+    "name": "stale worker run isolation",
+    "file": "src/merkle/ui.ts",
+    "anchor": "if (currentRun !== runId || message.runId !== currentRun) return;",
+    "replacement": "if (message.runId !== currentRun) return;",
+    "test": "late worker progress cannot overwrite a newer Bob selection"
+  },
+  {
+    "name": "Bob rerun retires Eve result",
+    "file": "src/merkle/ui.ts",
+    "anchor": "eveVerdict.removeAttribute('data-verdict');\n\t\teveVerdict.className = 'puzzle-verdict';\n\t\teveVerdict.textContent = 'Eve’s previous result was retired: Bob is selecting a new puzzle.';",
+    "replacement": "eveVerdict.className = 'puzzle-verdict';\n\t\teveVerdict.textContent = 'Eve’s previous result was retired: Bob is selecting a new puzzle.';",
+    "test": "selecting Bob again retires the previous Eve recovery"
+  },
+  {
+    "name": "nonzero puzzle indices",
+    "file": "src/merkle/protocol.ts",
+    "anchor": "const cIndex = cipher.enc(key, encodeIndex(index + 1));",
+    "replacement": "const cIndex = cipher.enc(key, encodeIndex(0 * (index + 1)));",
+    "test": "Bob agreement is computed from both rendered secrets"
   }
 ]

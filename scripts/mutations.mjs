@@ -4,6 +4,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { assertNormalExit, validateNamedRun } from './mutation-report.mjs';
 
 const mutations = JSON.parse(readFileSync(new URL('../mutations/ledger.json', import.meta.url), 'utf8'));
 const requested = process.argv.slice(2).join(' ');
@@ -13,15 +14,12 @@ if (selected.length === 0) throw new Error(`unknown mutation: ${requested}`);
 function run(command, args, timeout = 300_000) {
 	const result = spawnSync(command, args, {
 		encoding: 'utf8',
-		env: { ...process.env, CI: '1' },
+		env: { ...process.env, CI: '1', NO_COLOR: '1', FORCE_COLOR: '0' },
 		timeout,
 		maxBuffer: 16 * 1024 * 1024,
 	});
-	return {
-		code: result.status,
-		output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
-		error: result.error,
-	};
+	assertNormalExit(result, `${command} ${args.join(' ')}`);
+	return { ...result, code: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 }
 
 function build() {
@@ -31,23 +29,31 @@ function build() {
 
 function bundleHash() {
 	const hash = createHash('sha256');
-	for (const file of readdirSync('dist/assets').filter((name) => /\.(?:js|css)$/.test(name)).sort()) {
+	for (const file of readdirSync('dist/assets').filter((name) => name.endsWith('.js')).sort()) {
 		hash.update(file);
 		hash.update(readFileSync(`dist/assets/${file}`));
 	}
 	return hash.digest('hex');
 }
 
-function owningTest(mutation) {
-	return run('npx', [
+function owningTest(mutation, shouldPass) {
+	const result = run('npx', [
+		'--no-install',
 		'playwright',
 		'test',
 		'e2e/claims.spec.ts',
 		'--grep',
-		mutation.test,
+		`${mutation.test.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
 		'--workers=1',
 		'--retries=0',
+		'--reporter=json',
 	]);
+	try {
+		validateNamedRun(result, mutation.test, shouldPass);
+	} catch (error) {
+		throw new Error(`${error.message}\n${result.output}`);
+	}
+	return result;
 }
 
 function sourceDiffIsNonEmpty(file) {
@@ -56,6 +62,9 @@ function sourceDiffIsNonEmpty(file) {
 }
 
 mkdirSync('.qa-artifacts/mutations', { recursive: true });
+if (run('git', ['status', '--porcelain']).output.trim() !== '') {
+	throw new Error('Mutation run requires a clean committed worktree');
+}
 const records = [];
 
 for (const mutation of selected) {
@@ -66,8 +75,7 @@ for (const mutation of selected) {
 
 	build();
 	const baselineHash = bundleHash();
-	const baseline = owningTest(mutation);
-	if (baseline.code !== 0) throw new Error(`${mutation.name}: baseline test was not green\n${baseline.output}`);
+	owningTest(mutation, true);
 
 	let record;
 	try {
@@ -80,18 +88,7 @@ for (const mutation of selected) {
 		const mutatedHash = bundleHash();
 		if (mutatedHash === baselineHash) throw new Error(`${mutation.name}: production bundle hash DID NOT MOVE`);
 
-		const observed = owningTest(mutation);
-		if (observed.code === 0) throw new Error(`${mutation.name}: mutation SURVIVED`);
-		if (observed.error) throw observed.error;
-		if (/DOES NOT BUILD|Process from config.webServer|ERR_CONNECTION_REFUSED|error TS\d|No tests found/i.test(observed.output)) {
-			throw new Error(`${mutation.name}: red was infrastructure/build, not the named claim\n${observed.output}`);
-		}
-		if (!observed.output.includes(mutation.test)) {
-			throw new Error(`${mutation.name}: red output did not name owning test “${mutation.test}”\n${observed.output}`);
-		}
-		if (!/expect\(|Expected:|toHaveText|toContainText|toBeVisible|TimeoutError/.test(observed.output)) {
-			throw new Error(`${mutation.name}: failure did not name an asserted finding\n${observed.output}`);
-		}
+		const observed = owningTest(mutation, false);
 		writeFileSync(`.qa-artifacts/mutations/${mutation.name.replaceAll(' ', '-')}.log`, observed.output);
 		record = {
 			...mutation,
@@ -107,10 +104,11 @@ for (const mutation of selected) {
 		writeFileSync(mutation.file, original);
 		build();
 		if (bundleHash() !== baselineHash) throw new Error(`${mutation.name}: restored bundle hash differs`);
+		owningTest(mutation, true);
+		if (run('git', ['status', '--porcelain']).output.trim() !== '') {
+			throw new Error(`${mutation.name}: source did not return to the committed tree`);
+		}
 	}
-
-	const restored = owningTest(mutation);
-	if (restored.code !== 0) throw new Error(`${mutation.name}: restored test is not green\n${restored.output}`);
 	record.restoredGreen = true;
 	records.push(record);
 	writeFileSync('.qa-artifacts/mutations/observed.json', `${JSON.stringify(records, null, 2)}\n`);

@@ -62,7 +62,7 @@ function decodeIndex(block: Uint8Array, count: number): number | undefined {
 	if (block.length !== 16) return undefined;
 	for (let i = 0; i < 12; i += 1) if (block[i] !== 0) return undefined;
 	const index = new DataView(block.buffer, block.byteOffset, block.byteLength).getUint32(12, false);
-	return index < count ? index : undefined;
+	return index >= 1 && index <= count ? index : undefined;
 }
 
 function shuffledIndices(length: number, random: RandomSource): number[] {
@@ -87,7 +87,7 @@ export async function eveBruteForce(
 	const { transcript, b, cap } = payload;
 	if (!Number.isInteger(b) || b < 8 || b > 14) throw new RangeError('b must be from 8 through 14');
 	if (!Number.isInteger(cap) || cap < 1) throw new RangeError('cap must be a positive integer');
-	if (!Number.isInteger(transcript.targetIndex) || transcript.targetIndex < 0 || transcript.targetIndex >= transcript.puzzles.length) {
+	if (!Number.isInteger(transcript.targetIndex) || transcript.targetIndex < 1 || transcript.targetIndex > transcript.puzzles.length) {
 		throw new RangeError('target index is outside the transcript');
 	}
 	const cipher = options.cipher ?? AES_BLOCK_CIPHER;
@@ -98,6 +98,9 @@ export async function eveBruteForce(
 	let auxiliaryOps = 0;
 	let puzzlesTried = 0;
 	let sinceYield = 0;
+	// Let the fallback paint its running/cancel controls before doing AES work.
+	options.onProgress?.({ operations, puzzlesTried });
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 	for (const position of order) {
 		const puzzle = transcript.puzzles[position]!;
