@@ -35,6 +35,7 @@ import {
 	type Generation,
 } from './data.ts';
 import { renderPuzzles } from './merkle/ui.ts';
+import { simulateNumericComparison, type PairingResult, type PairingScenario } from './pairing.ts';
 
 function el<K extends keyof HTMLElementTagNameMap>(
 	tag: K,
@@ -533,6 +534,20 @@ function renderMitm(): HTMLElement {
 			<button id="mitm-authrun" class="tab-button" type="button">Same attack — signed key shares</button>
 		</div>
 		<div id="mitm-relay-output" class="attack-output" aria-live="polite"></div>
+		<div id="pairing-panel" class="pairing-panel" aria-labelledby="pairing-heading">
+			<h3 id="pairing-heading">What if the devices show the same short code?</h3>
+			<p class="panel-copy">Alice and Bob can compare a number on their screens instead of relying on a pre-known signing key. An active relay can still choose the public keys each device sees. Try what happens when Eve can choose her last nonce <em>after</em> seeing the other side's number, then bind her choice <em>before</em> the nonce exchange.</p>
+			${toyBanner('This is a three-digit teaching model with a non-cryptographic display function and fixed example nonces so a bounded search finishes in the browser. The commitment is SHA-256. Bluetooth LE Secure Connections uses fresh 128-bit nonces, P-256, its specified f4/g functions, and a six-digit comparison. This panel is not a Bluetooth implementation or a claim that compliant pairing is broken.')}
+			<div class="kx-actions" role="group" aria-label="Pairing comparison scenarios">
+				<button class="tab-button" type="button" data-pairing="honest">Honest exchange</button>
+				<button class="tab-button" type="button" data-pairing="adaptive">Eve chooses late</button>
+				<button class="tab-button" type="button" data-pairing="committed">Same attempt, commit first</button>
+			</div>
+			<div id="pairing-output" class="attack-output" aria-live="polite" aria-atomic="true">
+				<p class="kx-footnote">Choose a scenario to compare the displayed codes and the commitment check.</p>
+			</div>
+			<p class="kx-footnote">Source: <a href="https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/host/security-manager-specification.html" target="_blank" rel="noopener noreferrer">Bluetooth Core Specification v6.3 (5 May 2026), Security Manager §2.3.5.6.2</a>. Its order binds the public keys and nonce before reveal; a failed commitment or unequal codes aborts pairing.</p>
+		</div>
 	`;
 
 	const fields = ['p', 'g', 'a', 'b', 'e1', 'e2'] as const;
@@ -545,6 +560,8 @@ function renderMitm(): HTMLElement {
 	const relayBtn = section.querySelector<HTMLButtonElement>('#mitm-relay')!;
 	const authBtn = section.querySelector<HTMLButtonElement>('#mitm-authrun')!;
 	const relayOut = section.querySelector<HTMLElement>('#mitm-relay-output')!;
+	const pairingOut = section.querySelector<HTMLElement>('#pairing-output')!;
+	const pairingBtns = section.querySelectorAll<HTMLButtonElement>('[data-pairing]');
 
 	function rerun(): void {
 		// Any parameter change invalidates a previous relay run — clear it rather
@@ -644,10 +661,54 @@ function renderMitm(): HTMLElement {
 	authBtn.addEventListener('click', () => {
 		void runRelay(true, authBtn);
 	});
+	for (const btn of pairingBtns) {
+		btn.addEventListener('click', async () => {
+			for (const candidate of pairingBtns) candidate.disabled = true;
+			pairingOut.setAttribute('aria-busy', 'true');
+			try {
+				const result = await simulateNumericComparison(btn.dataset.pairing as PairingScenario);
+				pairingOut.innerHTML = renderPairingResult(result);
+			} catch (err) {
+				pairingOut.textContent = `Pairing model failed: ${(err as Error).message}`;
+			} finally {
+				pairingOut.removeAttribute('aria-busy');
+				for (const candidate of pairingBtns) candidate.disabled = false;
+			}
+		});
+	}
 
 	Object.values(inputs).forEach((i) => i.addEventListener('input', rerun));
 	rerun();
 	return section;
+}
+
+function renderPairingResult(r: PairingResult): string {
+	const verdict = r.scenario === 'honest'
+		? '✓ Honest exchange: codes match and the commitment verifies'
+		: r.aborted
+			? '✓ Commitment mismatch: Alice aborts before approving the code'
+			: '✗ Same short code, two different key-share transcripts';
+	const explanation = r.scenario === 'honest'
+		? 'Alice and Bob saw each other’s real public shares. They independently computed the same displayed value from the same shares and nonces.'
+		: r.aborted
+			? `Eve committed to nonce ${r.initialEveNonce} before Alice disclosed hers. Her later choice ${r.revealedEveNonce} would make the toy codes match, but it does not match the SHA-256 commitment, so the comparison cannot be accepted.`
+			: `Eve used ${r.searchTrials} trial nonce${r.searchTrials === 1 ? '' : 's'} after learning Alice’s nonce. The toy codes match even though Eve substituted different public shares on the two legs. A number checked without binding the preceding transcript is insufficient.`;
+	return `
+		<div class="attack-card pairing-result">
+			<p class="hero-metric-label" id="pairing-verdict">${verdict}</p>
+			<dl class="mitm-checks">
+				<dt>${r.aborted ? 'Alice’s would-be code (never displayed)' : 'Alice’s displayed code'}</dt><dd class="mono-inline" id="pairing-alice-code">${r.aliceCode}</dd>
+				<dt>Bob’s displayed code</dt><dd class="mono-inline" id="pairing-bob-code">${r.bobCode}</dd>
+				${r.sharesSubstituted ? `<dt>Alice’s code if Eve keeps her early nonce</dt><dd class="mono-inline" id="pairing-initial-code">${r.initialAliceCode}</dd>` : ''}
+				<dt>Different key-share transcripts?</dt><dd>${r.sharesSubstituted ? 'yes — Eve has two legs' : 'no — one honest exchange'}</dd>
+				<dt>Commitment verified before comparison?</dt><dd id="pairing-commitment">${r.commitmentValid === null ? 'not checked' : r.commitmentValid ? 'yes' : 'no — changed nonce'}</dd>
+				<dt>Device proceeds?</dt><dd id="pairing-proceeds">${r.aborted ? 'no — abort' : 'yes in this model'}</dd>
+			</dl>
+			<p class="kx-footnote">${explanation}</p>
+			${r.commitmentHex ? `<p class="mono-inline pairing-digest">Committed SHA-256: ${r.commitmentHex}</p>` : ''}
+			<p class="kx-footnote">${r.aborted ? 'The matching code above is hypothetical: Alice aborts at the commitment check before displaying or approving it. ' : ''}The fixed nonces make these three runs comparable. A real retry needs fresh random nonces; the three-digit search frequency and toy digest say nothing about Bluetooth’s six-digit attack probability.</p>
+		</div>
+	`;
 }
 
 // Renders ONLY values the run computed: the two AES keys HKDF-derived from this
