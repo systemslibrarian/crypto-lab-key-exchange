@@ -534,7 +534,7 @@ function renderMitm(): HTMLElement {
 			<button id="mitm-authrun" class="tab-button" type="button">Same attack — signed key shares</button>
 		</div>
 		<div id="mitm-relay-output" class="attack-output" aria-live="polite"></div>
-		<div id="pairing-panel" class="pairing-panel" aria-labelledby="pairing-heading">
+		<div id="pairing-panel" class="pairing-panel">
 			<h3 id="pairing-heading">What if the devices show the same short code?</h3>
 			<p class="panel-copy">Alice and Bob can compare a number on their screens instead of relying on a pre-known signing key. An active relay can still choose the public keys each device sees. Try what happens when Eve can choose her last nonce <em>after</em> seeing the other side's number, then bind her choice <em>before</em> the nonce exchange.</p>
 			${toyBanner('This is a three-digit teaching model with a non-cryptographic display function and fixed example nonces so a bounded search finishes in the browser. The commitment is SHA-256. Bluetooth LE Secure Connections uses fresh 128-bit nonces, P-256, its specified f4/g functions, and a six-digit comparison. This panel is not a Bluetooth implementation or a claim that compliant pairing is broken.')}
