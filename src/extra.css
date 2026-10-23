@@ -915,6 +915,10 @@
   margin: 0 0 10px;
 }
 
+.pairing-panel .tab-button {
+  border-color: var(--border-strong);
+}
+
 .pairing-panel .pairing-digest {
   overflow-wrap: anywhere;
 }
