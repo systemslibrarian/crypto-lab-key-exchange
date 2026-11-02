@@ -7,6 +7,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege for every job that does not ask for more. `verify` only reads
+# this repository: checkout, npm ci, build, unit tests, a Playwright install, a
+# local vite preview, then the smoke, axe, a11y and mutation suites against it.
+# `dependabot-auto-merge` declares its own wider block below, which overrides
+# this for that job alone, so the bump and its deploy dispatch are unchanged.
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
