@@ -418,6 +418,10 @@ function renderDhAttack(
 		if (sec < 86400 * 365) return `${(sec / 86400).toFixed(1)} days`;
 		if (sec < 86400 * 365 * 1e6) return `${(sec / (86400 * 365)).toFixed(1)} years`;
 		const universes = sec / ageOfUniverseSec;
+		// Anything short of one universe age reads as a confusing fraction
+		// ("2.8e-3 × age of universe"), so print the years instead. The
+		// corrected ≤ 80-bit row lands exactly here.
+		if (universes < 1) return `${(sec / (86400 * 365)).toExponential(1)} years`;
 		if (universes < 1e9) return `${universes.toExponential(1)} × age of universe`;
 		return `≫ age of universe`;
 	}
@@ -429,8 +433,12 @@ function renderDhAttack(
 		{ label: 'Your demo run', bits: Math.ceil(Math.log2(p)), ops: iterations, here: true },
 		{ label: 'Hobby laptop, 2^32 bits', bits: 32, ops: 2 ** 32, here: false },
 		{ label: '64-bit prime', bits: 64, ops: 2 ** 64, here: false },
-		{ label: '1024-bit DH (broken)', bits: 1024, ops: 2 ** 110, here: false }, // ~ index-calculus effort
-		{ label: '2048-bit DH (production)', bits: 2048, ops: 2 ** 160, here: false },
+		// NIST's security strengths for these modulus sizes (SP 800-57 Part 1
+		// Rev. 5, Table 2, § 5.6.1.1): at most 80 bits at L = 1024 and 112 bits
+		// at L = 2048. That is the cost of the best classical attack, index
+		// calculus — not of the naive brute force the demo above actually ran.
+		{ label: '1024-bit DH (≤ 80-bit strength; no longer approved)', bits: 1024, ops: 2 ** 80, here: false },
+		{ label: '2048-bit DH (112-bit strength; production)', bits: 2048, ops: 2 ** 112, here: false },
 	];
 	const rows = tiers
 		.map(
@@ -458,7 +466,7 @@ function renderDhAttack(
 					<tbody>${rows}</tbody>
 				</table>
 			</div>
-			<p class="kx-footnote">The naive brute force above scales linearly with <code>p</code>; the best classical attack (index calculus) is sub-exponential, but real-DH primes are still chosen so even that takes longer than the age of the universe. Shor’s quantum algorithm collapses both to polynomial time.</p>
+			<p class="kx-footnote">The naive brute force above scales linearly with <code>p</code>. The two production rows instead show the security strength NIST assigns each modulus size — the cost of the best classical attack, index calculus, which is sub-exponential. Note what the last column then says about the 1024-bit row: a single optimistic core is <em>not</em> why that group was retired. It was retired because a strength of 80 bits or less is “no longer approved for applying cryptographic protection on federal government information”; the last column counts one optimistic core, and an operation count divides across as many machines as an attacker can buy. At 2048-bit, 2<sup>112</sup> is out of reach by any classical route we know. Shor’s quantum algorithm collapses both to polynomial time. Source: <a href="https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf" target="_blank" rel="noopener noreferrer">NIST SP 800-57 Part 1 Rev. 5 (May 2020), Table 2, § 5.6.1.1</a>.</p>
 		</div>
 	`;
 }
@@ -844,7 +852,7 @@ function renderEcdhPlayground(): HTMLElement {
 					<tr><td>Prime <code>p</code></td><td class="mono-cell">17</td><td class="mono-cell">2²⁵⁵ − 19</td></tr>
 					<tr><td>Curve equation</td><td class="mono-cell">y² = x³ + 2x + 2</td><td class="mono-cell">y² = x³ + 486662 x² + x (Montgomery)</td></tr>
 					<tr><td>Generator</td><td class="mono-cell">(5, 1)</td><td class="mono-cell">u = 9 (Montgomery x-coord)</td></tr>
-					<tr><td>Group order <code>n</code></td><td class="mono-cell">19 points + ∞</td><td class="mono-cell">≈ 2²⁵²</td></tr>
+					<tr><td>Group order <code>n</code></td><td class="mono-cell">19 = 18 points + ∞</td><td class="mono-cell">≈ 2²⁵²</td></tr>
 					<tr><td>Bits of classical security</td><td class="mono-cell">≈ 2 (broken instantly)</td><td class="mono-cell">≈ 128 (production target)</td></tr>
 					<tr><td>Public key size</td><td class="mono-cell">1 byte</td><td class="mono-cell">32 bytes</td></tr>
 					<tr><td>Year / author</td><td class="mono-cell">teaching only</td><td class="mono-cell">2006, D. J. Bernstein</td></tr>
@@ -1206,9 +1214,12 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 		<details class="why-details hybrid-security">
 			<summary>Why is the combined key "secure if either half holds"?</summary>
 			<p>
-				The exact argument depends on the chosen KDF. In the production TLS 1.3
-				hybrid draft (Stebila / Fluhrer / Gueron), the session key is
-				<code>HKDF-Extract(salt, x25519_secret ‖ mlkem_secret)</code>. Two standard
+				The exact argument depends on the chosen KDF. In the deployed TLS 1.3
+				group X25519MLKEM768 the shared secret is
+				<code>mlkem_secret ‖ x25519_secret</code> — ML-KEM first — and TLS 1.3
+				then runs it through its own transcript-bound key schedule
+				(RFC 10024 § 4.3, August 2026; the ML-KEM half leads so that the
+				FIPS-approved secret comes first). Two standard
 				properties feed into the security claim:
 			</p>
 			<ol>
@@ -1226,8 +1237,10 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 				Formal statement: the combined KEM is IND-CCA2-secure under a standard
 				model of the KDF as long as <em>at least one</em> of (X25519 DDH,
 				Module-LWE) holds. This is exactly the "belt and braces" guarantee — and
-				the reason production deployments are willing to pay the ~1.2 KB extra
-				per handshake.
+				the reason production deployments are willing to pay 2,272 extra bytes
+				per handshake: this lab’s own ML-KEM-768 sizes, a 1,184-byte
+				encapsulation key out and a 1,088-byte ciphertext back, against 32 bytes
+				each way for X25519 alone. That is about 1.2 KB in each direction.
 			</p>
 		</details>
 	`;
@@ -1272,7 +1285,7 @@ function renderHybridSection(state: SharedSecrets, getDh: () => number): HTMLEle
 					<p class="hero-metric-label">Session key = HKDF-SHA256(dh<sub>4B</sub> ‖ kem, info = label)</p>
 					<p class="mono-inline">${session} ${copyChip(session, 'session key')}</p>
 				</div>
-				<p class="kx-footnote">The DH value is fixed-width encoded (4-byte big-endian) and mixed with the real ML-KEM-768 secret through HKDF-Extract-then-Expand with a fixed domain-separation label — the same <em>shape</em> as the production X25519MLKEM768 combiner. This is the bridge protocol in production today — X25519MLKEM768 in TLS 1.3, Apple iMessage PQ3, AWS KMS. Secure if either half holds.</p>
+				<p class="kx-footnote">The DH value is fixed-width encoded (4-byte big-endian) and mixed with the real ML-KEM-768 secret through HKDF-Extract-then-Expand with a fixed domain-separation label — the same <em>shape</em> as the production X25519MLKEM768 combiner. Hybrid is the bridge in production today, in several pairings: the TLS 1.3 group X25519MLKEM768 at Cloudflare, Chrome, and AWS KMS; P-256 with Kyber-1024 in Apple iMessage PQ3; X25519 with Kyber-1024 in Signal’s PQXDH. Secure if either half holds.</p>
 			`;
 		} catch (err) {
 			output.innerHTML = `<p class="scenario-status--invalid">Combine failed: ${(err as Error).message}</p>`;
@@ -1323,7 +1336,7 @@ function renderDecisionCard(): HTMLElement {
 		<div class="decision-grid">
 			<div class="decision-row">
 				<p class="hero-metric-label">Classical-only environment</p>
-				<p class="panel-copy"><strong>Use X25519.</strong> Default in TLS 1.3, libsodium, modern SSH. Constant-time, 32-byte keys, no parameter selection.</p>
+				<p class="panel-copy"><strong>Use X25519.</strong> TLS 1.3 names no default group — RFC 9846 § 9.1 (July 2026) requires secp256r1 (P-256) and says you SHOULD also support X25519. It is the default in libsodium and is used in SSH. Constant-time, 32-byte keys, no parameter selection.</p>
 			</div>
 			<div class="decision-row">
 				<p class="hero-metric-label">Need post-quantum confidentiality</p>
@@ -1331,7 +1344,7 @@ function renderDecisionCard(): HTMLElement {
 			</div>
 			<div class="decision-row">
 				<p class="hero-metric-label">Migrating today</p>
-				<p class="panel-copy"><strong>Use hybrid X25519+ML-KEM-768.</strong> What Cloudflare, Chrome, Apple, Signal, and AWS ship today. Secure if either half holds.</p>
+				<p class="panel-copy"><strong>Use hybrid X25519+ML-KEM-768.</strong> The TLS group X25519MLKEM768 is what Cloudflare, Chrome, and AWS ship today; Apple iMessage PQ3 and Signal PQXDH ship their own ECDH+Kyber pairings. Secure if either half holds.</p>
 			</div>
 			<div class="decision-row decision-row--warn">
 				<p class="hero-metric-label">In every case</p>
@@ -1639,13 +1652,13 @@ function renderShor(): HTMLElement {
 				<table class="math-table shor-resources">
 					<thead><tr><th>Target</th><th>Logical qubits</th><th>Physical qubits</th><th>Wall time</th><th>Source</th></tr></thead>
 					<tbody>
-						<tr><td>RSA-2048</td><td class="mono-cell">≈ 4 100</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td><td>Gidney &amp; Ekerå, 2019</td></tr>
-						<tr><td>2048-bit DH</td><td class="mono-cell">≈ 4 100</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td><td>Gidney &amp; Ekerå, 2019 (same modulus size)</td></tr>
+						<tr><td>RSA-2048</td><td class="mono-cell">≈ 6 190</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td><td>Gidney &amp; Ekerå, 2019</td></tr>
+						<tr><td>2048-bit DH</td><td class="mono-cell">≈ 6 190</td><td class="mono-cell">≈ 20 000 000</td><td class="mono-cell">≈ 8 hours</td><td>Gidney &amp; Ekerå, 2019 (same modulus size)</td></tr>
 						<tr><td>Curve25519 (ECDLP)</td><td class="mono-cell">≈ 2 330</td><td class="mono-cell">≈ 11 000 000</td><td class="mono-cell">≈ hours</td><td>Roetteler, Naehrig, Svore &amp; Lauter, ASIACRYPT 2017</td></tr>
 					</tbody>
 				</table>
 			</div>
-			<p class="kx-footnote">These figures come from two different papers and are not directly comparable: the factoring and finite-field rows are Gidney &amp; Ekerå's surface-code costing, while the ECDLP row is Roetteler et al.'s logical-qubit count of 9n + 2⌈log₂ n⌉ + 10, which is 2 330 at n = 256; its physical-qubit and wall-time figures are extrapolations under comparable surface-code assumptions rather than numbers either paper states. Today's best superconducting hardware is on the order of 1 000 noisy physical qubits. The gap is huge — but the curve of progress and the long lifetime of harvested traffic are exactly why production has already started migrating.</p>
+			<p class="kx-footnote">These figures come from two different papers and are not directly comparable: the factoring and finite-field rows are Gidney &amp; Ekerå's surface-code costing, whose abstract-circuit logical-qubit count is 3n + 0.002·n·lg n — 6 190 at n = 2048 — while the ECDLP row is Roetteler et al.'s logical-qubit count of 9n + 2⌈log₂ n⌉ + 10, which is 2 330 at n = 256; its physical-qubit and wall-time figures are extrapolations under comparable surface-code assumptions rather than numbers either paper states. Today's best superconducting hardware is on the order of 1 000 noisy physical qubits. The gap is huge — but the curve of progress and the long lifetime of harvested traffic are exactly why production has already started migrating.</p>
 		</div>
 	`;
 

@@ -60,7 +60,7 @@ export const GENERATIONS: Generation[] = [
 			'ECDLP on Curve25519 — chosen with rigid, verifiable parameters to rule out the suspicion of back-door curves.',
 		keySize: '32-byte public keys, 32-byte shared secrets. Hard-coded; no agility, no parameter negotiation.',
 		drove:
-			'NIST P-curves’ history (and Dual_EC_DRBG fallout) created demand for transparently-chosen curves with side-channel-resistant implementations. TLS 1.3 picked X25519 as the default.',
+			'NIST P-curves’ history (and Dual_EC_DRBG fallout) created demand for transparently-chosen curves with side-channel-resistant implementations. TLS 1.3 names no default group: RFC 9846 § 9.1 requires support for secp256r1 (NIST P-256) and says implementations SHOULD support X25519.',
 		threat:
 			'Still ECDLP under the hood; still broken by Shor on a large quantum computer.',
 		pqSafe: false,
@@ -75,7 +75,7 @@ export const GENERATIONS: Generation[] = [
 			'Module Learning-With-Errors (Module-LWE) over polynomial rings. Conjectured hard for both classical and quantum adversaries.',
 		keySize: '~800–1568-byte public keys and ciphertexts depending on parameter set (ML-KEM-512/768/1024).',
 		drove:
-			'Harvest-now-decrypt-later. Traffic recorded today against X25519 becomes plaintext the moment a useful quantum computer exists. NIST PQC standardisation chose ML-KEM as the primary KEM in 2024.',
+			'Harvest-now-decrypt-later. Traffic recorded today against X25519 becomes plaintext the moment a useful quantum computer exists. NIST PQC standardisation selected Kyber — now ML-KEM — as its primary KEM in July 2022 and published it as FIPS 203 in August 2024.',
 		threat:
 			'No known quantum algorithm breaks Module-LWE in polynomial time. Confidence comes from sustained cryptanalysis rather than a reduction to a single proven-hard problem.',
 		pqSafe: true,
@@ -85,7 +85,7 @@ export const GENERATIONS: Generation[] = [
 		year: 2024,
 		name: 'Hybrid X25519+ML-KEM',
 		mechanic:
-			'Run both X25519 and ML-KEM in parallel, then derive the session key from H(x25519Secret || mlkemSecret). Both halves must break to break the channel.',
+			'Run both X25519 and ML-KEM in parallel, then derive the session key from the two secrets concatenated — H(mlkemSecret || x25519Secret) in the deployed TLS group X25519MLKEM768, which puts the ML-KEM half first. Both halves must break to break the channel.',
 		hardProblem:
 			'Either ECDLP on Curve25519 *or* Module-LWE must hold. The combined session key is at least as strong as the stronger of the two.',
 		keySize: 'Sum of both: ~32 + ~1100 bytes for X25519MLKEM768, depending on the parameter set.',
@@ -178,13 +178,13 @@ export const HISTORY: HistoryEvent[] = [
 		year: 2022,
 		kind: 'attack',
 		title: 'SIKE broken',
-		body: 'Castryck and Decru break SIKE — a NIST-finalist isogeny-based KEM — on a laptop in hours. A reminder that "post-quantum candidate" is not "post-quantum proven."',
+		body: 'Castryck and Decru break SIKE — an isogeny-based KEM that was a NIST third-round alternate and then a fourth-round candidate, never a finalist — on a laptop in hours. A reminder that "post-quantum candidate" is not "post-quantum proven."',
 	},
 	{
 		year: 2024,
 		kind: 'standard',
 		title: 'FIPS 203 (ML-KEM)',
-		body: 'NIST publishes FIPS 203 standardising ML-KEM (Kyber). Production deployments — X25519MLKEM768 in TLS 1.3, Apple iMessage PQ3, AWS KMS, Signal — start the same year.',
+		body: 'NIST publishes FIPS 203 standardising ML-KEM (Kyber). Hybrid key agreement was already shipping on the Kyber drafts — Cloudflare in 2022, Signal PQXDH in 2023, Apple iMessage PQ3 in February 2024 — and the TLS group X25519MLKEM768 follows: Chrome 131 in 2024, AWS KMS in April 2025.',
 	},
 ];
 
@@ -198,8 +198,8 @@ export interface Deployment {
 export const DEPLOYMENTS: Deployment[] = [
 	{
 		name: 'Cloudflare',
-		year: 2023,
-		what: 'X25519Kyber768 (and later X25519MLKEM768) on all TLS connections by default; client and server.',
+		year: 2022,
+		what: 'Post-quantum hybrid key agreement on by default for all websites and APIs served through Cloudflare — X25519Kyber768Draft00 in the October 2022 post, X25519MLKEM768 later; client and server.',
 		url: 'https://blog.cloudflare.com/post-quantum-for-all/',
 	},
 	{
@@ -211,20 +211,20 @@ export const DEPLOYMENTS: Deployment[] = [
 	{
 		name: 'Apple iMessage',
 		year: 2024,
-		what: 'PQ3 protocol — hybrid ECDH + ML-KEM key establishment, plus post-compromise security via continuous rekeying.',
+		what: 'PQ3 protocol — hybrid P-256 ECDH + Kyber-1024 key establishment (Kyber-768 on each rekey), plus post-compromise security via continuous rekeying. Kyber is the pre-standard lineage of FIPS 203 ML-KEM, not the TLS group X25519MLKEM768.',
 		url: 'https://security.apple.com/blog/imessage-pq3/',
 	},
 	{
 		name: 'Signal',
 		year: 2023,
-		what: 'PQXDH: extends the X3DH key-agreement protocol with an ML-KEM (Kyber) round for post-quantum forward secrecy.',
+		what: 'PQXDH: extends the X3DH key-agreement protocol with a post-quantum KEM round — Revision 3 pairs curve25519 (X25519) with CRYSTALS-Kyber-1024 in its worked example — against harvest-now-decrypt-later.',
 		url: 'https://signal.org/docs/specifications/pqxdh/',
 	},
 	{
 		name: 'AWS KMS',
-		year: 2024,
-		what: 'TLS endpoints for KMS, ACM, and Secrets Manager accept hybrid X25519MLKEM768 for post-quantum key establishment.',
-		url: 'https://aws.amazon.com/blogs/security/aws-pqc-tls/',
+		year: 2025,
+		what: 'Announced 7 April 2025: KMS, ACM, and Secrets Manager endpoints support ML-KEM for hybrid post-quantum key agreement, benchmarked as X25519MLKEM768.',
+		url: 'https://aws.amazon.com/blogs/security/ml-kem-post-quantum-tls-now-supported-in-aws-kms-acm-and-secrets-manager/',
 	},
 ];
 
@@ -285,6 +285,13 @@ export const REFERENCES: Reference[] = [
 		title: 'Hybrid key exchange in TLS 1.3',
 		venue: 'IETF draft-ietf-tls-hybrid-design',
 		url: 'https://datatracker.ietf.org/doc/draft-ietf-tls-hybrid-design/',
+	},
+	{
+		authors: 'K. Kwiatkowski, P. Kampanakis, B. E. Westerbaan, D. Stebila',
+		year: 2026,
+		title: 'Post-Quantum Traditional (PQ/T) Hybrid Key Agreement Mechanisms for TLS 1.3',
+		venue: 'RFC 10024 (August 2026)',
+		url: 'https://www.rfc-editor.org/rfc/rfc10024.html',
 	},
 	{
 		authors: 'W. Castryck, T. Decru',
@@ -358,6 +365,6 @@ export const WHY_IT_MATTERS: KeyMoment[] = [
 	{
 		title: 'Hybrid is the bridge, not the destination',
 		year: 2024,
-		body: 'Production deployments — Cloudflare, Apple iMessage PQ3, Signal, AWS KMS — use X25519MLKEM768 today: belt-and-braces during the transition. If ML-KEM is later weakened, X25519 still protects classical adversaries; if a quantum computer arrives, ML-KEM still protects.',
+		body: 'Production is hybrid today — but not all the same hybrid. Cloudflare, Chrome, and AWS KMS negotiate the TLS group X25519MLKEM768; Apple iMessage PQ3 pairs P-256 with Kyber-1024, and Signal’s PQXDH pairs X25519 with Kyber-1024. Different pairings, one bet: if ML-KEM is later weakened, the classical half still protects against classical adversaries; if a quantum computer arrives, the KEM half still protects.',
 	},
 ];

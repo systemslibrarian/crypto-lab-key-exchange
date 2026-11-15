@@ -165,13 +165,66 @@ async function run(label, deviceOpts) {
 	const deployments = await page.locator('#production .panel-card').count();
 	assert(deployments === 5, `production section has 5 deployments (got ${deployments})`);
 	const refs = await page.locator('.ref-row').count();
-	assert(refs === 8, `references has 8 entries (got ${refs})`);
+	assert(refs === 9, `references has 9 entries (got ${refs})`);
 	const glossary = await page.locator('.glossary-row').count();
 	assert(glossary === 8, `glossary has 8 entries (got ${glossary})`);
 	const curveDots = await page.locator('.ec-svg-dot').count();
 	assert(curveDots === 18, `EC curve plot has 18 finite points (got ${curveDots})`);
 	const highlighted = await page.locator('.ec-svg-dot.ec-dot--g, .ec-svg-dot.ec-dot--a, .ec-svg-dot.ec-dot--b, .ec-svg-dot.ec-dot--shared').count();
 	assert(highlighted >= 3, `curve plot highlights G/A/B/shared (got ${highlighted})`);
+
+	// ---- Corrected figures, 15 November 2026 --------------------------------
+	// Each assertion below pins a number or attribution that a primary source
+	// fixed, so restoring the old text fails the smoke run instead of shipping.
+	const expOps = (bits) => (2 ** bits).toExponential(1);
+	const scaleText = (await page.locator('.scale-table').textContent()) ?? '';
+	assert(/\u2264 80-bit strength; no longer approved/.test(scaleText), '1024-bit DH row carries NIST\u2019s \u2264 80-bit strength, not "broken"');
+	assert(/112-bit strength; production/.test(scaleText), '2048-bit DH row carries NIST\u2019s 112-bit strength');
+	assert(scaleText.includes(expOps(80)), `1024-bit DH row shows 2^80 operations (${expOps(80)})`);
+	assert(scaleText.includes(expOps(112)), `2048-bit DH row shows 2^112 operations (${expOps(112)})`);
+	assert(!scaleText.includes(expOps(110)) && !scaleText.includes(expOps(160)), 'the old 2^110 / 2^160 operation counts are gone');
+	// The consequence has to follow the corrected figure: 2^80 at 10^9 ops/s is
+	// tens of millions of years, not a fraction of a universe age.
+	assert(/3\.8e\+7 years/.test(scaleText), '\u2264 80-bit row reads in years, not as a fraction of a universe age');
+	assert(/1\.2e\+7 \u00d7 age of universe/.test(scaleText), '2048-bit row still reads as millions of universe ages');
+
+	const shorTable = (await page.locator('.shor-resources').textContent()) ?? '';
+	assert(/\u2248 6 190/.test(shorTable), 'Gidney \u0026 Eker\u00e5 logical qubits are \u2248 6 190 (3n + 0.002\u00b7n\u00b7lg n at n = 2048)');
+	assert(!/4 100/.test(shorTable), 'the old \u2248 4 100 logical-qubit figure is gone');
+
+	const contrastText = (await page.locator('.curve-contrast').textContent()) ?? '';
+	assert(/19 = 18 points \+ \u221e/.test(contrastText), 'demo-curve group order is 19 = 18 affine points + \u221e');
+
+	const hybridSecText = (await page.locator('.hybrid-security').textContent()) ?? '';
+	assert(/mlkem_secret \u2016 x25519_secret/.test(hybridSecText), 'hybrid shared secret puts the ML-KEM half first (RFC 10024 \u00a7 4.3)');
+	assert(/RFC 10024 \u00a7 4\.3/.test(hybridSecText), 'hybrid security argument cites RFC 10024 \u00a7 4.3');
+	assert(/2,272 extra bytes/.test(hybridSecText), 'hybrid overhead is the lab\u2019s own 1,184 + 1,088 = 2,272 bytes');
+	assert(!/~1\.2 KB extra\s*\n?\s*per handshake/.test(hybridSecText), 'the old "~1.2 KB extra per handshake" figure is gone');
+
+	const decisionText = (await page.locator('.decision-grid').textContent()) ?? '';
+	assert(/RFC 9846 \u00a7 9\.1/.test(decisionText) && /secp256r1/.test(decisionText), 'X25519 is a SHOULD and secp256r1 the MUST (RFC 9846 \u00a7 9.1)');
+	assert(!/Default in TLS 1\.3/.test(decisionText), 'X25519 is no longer called the TLS 1.3 default');
+
+	const historyText = (await page.locator('.hist-list').textContent()) ?? '';
+	assert(/third-round alternate/.test(historyText) && /never a finalist/.test(historyText), 'SIKE is a third-round alternate and fourth-round candidate, not a finalist');
+	assert(!/NIST-finalist/.test(historyText), 'the "NIST-finalist" SIKE claim is gone');
+
+	const awsText = (await page.locator('#production .panel-card', { hasText: 'AWS KMS' }).textContent()) ?? '';
+	assert(/7 April 2025/.test(awsText) && /2025/.test(awsText), 'AWS KMS hybrid ML-KEM is dated 7 April 2025');
+	const cfText = ((await page.locator('#production .panel-card', { hasText: 'Cloudflare' }).textContent()) ?? '').trim();
+	assert(/^2022/.test(cfText), 'Cloudflare post-quantum-by-default is dated 2022 (October 2022 post)');
+
+	// Two generation panels carry corrected text; they render one at a time.
+	await page.locator('#gen-tab-x25519').click();
+	const x25519Detail = (await page.locator('.gen-detail').textContent()) ?? '';
+	assert(/names no default group/.test(x25519Detail) && /SHOULD support X25519/.test(x25519Detail), 'X25519 panel states the RFC 9846 \u00a7 9.1 rule, not "the default"');
+	await page.locator('#gen-tab-mlkem').click();
+	const mlkemDetail = (await page.locator('.gen-detail').textContent()) ?? '';
+	assert(/July 2022/.test(mlkemDetail) && /FIPS 203 in August 2024/.test(mlkemDetail), 'ML-KEM was selected July 2022 and standardised August 2024');
+	await page.locator('#gen-tab-hybrid').click();
+	const hybridDetail = (await page.locator('.gen-detail').textContent()) ?? '';
+	assert(/H\(mlkemSecret \|\| x25519Secret\)/.test(hybridDetail), 'hybrid panel puts the ML-KEM secret first');
+	await page.locator('#gen-tab-dh').click();
 
 	// Copy buttons present on key outputs
 	const copyChips = await page.locator('.copy-chip').count();
