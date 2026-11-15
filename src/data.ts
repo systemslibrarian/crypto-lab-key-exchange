@@ -281,10 +281,10 @@ export const REFERENCES: Reference[] = [
 	},
 	{
 		authors: 'D. Stebila, S. Fluhrer, S. Gueron',
-		year: 2024,
-		title: 'Hybrid key exchange in TLS 1.3',
-		venue: 'IETF draft-ietf-tls-hybrid-design',
-		url: 'https://datatracker.ietf.org/doc/draft-ietf-tls-hybrid-design/',
+		year: 2026,
+		title: 'Hybrid Key Exchange in TLS 1.3',
+		venue: 'RFC 9954 (July 2026, Informational)',
+		url: 'https://www.rfc-editor.org/rfc/rfc9954.html',
 	},
 	{
 		authors: 'K. Kwiatkowski, P. Kampanakis, B. E. Westerbaan, D. Stebila',

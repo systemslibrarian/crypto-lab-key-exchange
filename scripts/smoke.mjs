@@ -191,6 +191,13 @@ async function run(label, deviceOpts) {
 	const shorTable = (await page.locator('.shor-resources').textContent()) ?? '';
 	assert(/\u2248 6 190/.test(shorTable), 'Gidney \u0026 Eker\u00e5 logical qubits are \u2248 6 190 (3n + 0.002\u00b7n\u00b7lg n at n = 2048)');
 	assert(!/4 100/.test(shorTable), 'the old \u2248 4 100 logical-qubit figure is gone');
+	assert(/≈ 1\.2 hours per run/.test(shorTable), 'the finite-field DLP row reads ≈ 1.2 hours per run (Gidney & Ekerå Table 4, safe-prime short exponent, n = 2048)');
+	assert(/9% retry risk/.test(shorTable), 'the DLP row carries Table 4\'s 9% retry risk');
+	assert(/Table 4/.test(shorTable), 'the DLP row cites Table 4 rather than the paper\'s RSA headline');
+	assert(!/2048-bit DH[\s\S]{0,200}?≈ 8 hours/.test(shorTable), 'the RSA 8-hour headline is no longer attached to the Diffie-Hellman row');
+	assert(!/same modulus size/.test(shorTable), 'the "same modulus size" justification for reusing the RSA figure is gone');
+	const rsaRow = (await page.locator('.shor-resources tbody tr').first().textContent()) ?? '';
+	assert(/RSA-2048/.test(rsaRow) && /≈ 8 hours/.test(rsaRow), 'the 8-hour figure stays on the RSA-2048 factoring row');
 
 	const contrastText = (await page.locator('.curve-contrast').textContent()) ?? '';
 	assert(/19 = 18 points \+ \u221e/.test(contrastText), 'demo-curve group order is 19 = 18 affine points + \u221e');
