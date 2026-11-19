@@ -15,48 +15,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The gate, called rather than copied. This is the same workflow the
+  # Dependabot auto-merge waits on, so "what merged it" and "what publishes it"
+  # are now the same definition and cannot drift apart.
+  gate:
+    uses: ./.github/workflows/ci.yml
+
+  # Build only. Every gate step that used to live here -- engine tests, the
+  # locked browser-runner check, the Playwright install, test:a11y and
+  # test:mutations -- now runs once, in the called workflow above.
   build:
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          # Must match ci.yml. `npm test` imports src/engine.ts directly and so
+          # Must match ci.yml: `npm test` imports src/engine.ts directly and so
           # runs under --experimental-strip-types, which only exists from Node
-          # 22.6. On Node 20 the flag is rejected outright ("node: bad option")
-          # and the engine gate cannot run at all.
+          # 22.6. On Node 20 the flag is rejected outright ("node: bad option").
           node-version: 22
           cache: npm
       - run: npm ci
-      # scripts/engine.test.mjs — the exchange engine itself: the DH/ECDH/
-      # ML-KEM arithmetic and the MitM relay's authenticated and
-      # unauthenticated outcomes. It ran only in ci.yml, which cannot stop the
-      # deploy the same push triggers, so a broken engine could publish.
-      - name: Engine unit tests
-        run: npm test
       - run: npm run build
-      - name: Verify locked browser runner
-        run: node scripts/browser-deps.mjs
-      - name: Install Playwright browser
-        run: npx --no-install playwright install --with-deps chromium
-      # `test:a11y` is bare `playwright test`, so this runs mitm-relay.spec.ts
-      # alongside a11y.spec.ts — the browser-level relay outcomes gate too.
-      #
-      # `npm run smoke` and `npm run axe` stay CI-only on purpose. They need a
-      # separately booted preview on port 4659, and
-      # what they assert is already covered by the locked Playwright suite
-      # above. Publishing does not need the separately managed preview server.
-      - name: Browser relay and accessibility gate
-        run: npm run test:a11y
-      - name: Merkle behavioural mutation gate
-        run: npm run test:mutations
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
   deploy:
-    needs: build
+    # `gate` is already transitive through `build`; naming it here as well
+    # states the invariant in the one place a reader checks it.
+    needs: [gate, build]
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # deploy.yml calls this workflow so the gate has ONE definition. `needs:`
+  # cannot cross files, so before this the deploy carried its own copy of the
+  # gate steps and the two were kept equal by hand -- the shape gate-sync
+  # warns about, and the reason this lab published for two shas while ci.yml
+  # was red. dependabot-auto-merge below is guarded on a pull_request event by
+  # dependabot, so a push-triggered call skips it rather than re-running it.
+  workflow_call:
 
 # Least privilege for every job that does not ask for more. `verify` only reads
 # this repository: checkout, npm ci, build, unit tests, a Playwright install, a
