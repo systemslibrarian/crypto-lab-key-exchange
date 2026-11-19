@@ -65,11 +65,40 @@ jobs:
       - name: Accessibility audit (axe-core, WCAG 2.1 A/AA)
         run: npm run axe
 
+      # Stop the shared preview BEFORE Playwright, which brings its own on the
+      # same 4659 with reuseExistingServer false on CI. Run the other way round
+      # it exits with "http://localhost:4659/... is already used" -- which is
+      # what happened the first time this step was reached at all, because the
+      # smoke step used to die on a wrong port and skip everything after it.
+      #
+      # `kill $(cat preview.pid)` alone is not enough: that pid is npx, and vite
+      # can outlive it holding the port. So ask the PORT, and only if it is
+      # still held, kill whatever is listening on it -- by port, never by name
+      # pattern, which on a shared machine would take out sibling runs.
+      - name: Stop preview before Playwright starts its own
+        run: |
+          if [ -f preview.pid ]; then
+            kill "$(cat preview.pid)" 2>/dev/null || true
+            rm preview.pid
+          fi
+          for i in $(seq 1 20); do
+            nc -z localhost 4659 || break
+            pid=$(lsof -ti:4659 || true)
+            [ -n "$pid" ] && kill $pid 2>/dev/null || true
+            sleep 1
+          done
+          if nc -z localhost 4659; then
+            echo "::error::port 4659 is still held; Playwright cannot bind it"
+            exit 1
+          fi
+          echo "port 4659 is free"
+
       # Playwright suite in ./e2e: the WCAG gate plus the MitM relay exhibit's
       # computed-outcome assertions. It boots its own preview on port 4659.
       - name: Browser exhibit + WCAG suite (Playwright)
         run: npm run test:a11y
 
+      # Safety net for the paths that exit before the step above.
       - name: Stop preview
         if: always()
         run: |
