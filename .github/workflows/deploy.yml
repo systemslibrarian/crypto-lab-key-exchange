@@ -44,7 +44,7 @@ jobs:
       # alongside a11y.spec.ts — the browser-level relay outcomes gate too.
       #
       # `npm run smoke` and `npm run axe` stay CI-only on purpose. They need a
-      # separately booted preview on port 4674, and
+      # separately booted preview on port 4659, and
       # what they assert is already covered by the locked Playwright suite
       # above. Publishing does not need the separately managed preview server.
       - name: Browser relay and accessibility gate

@@ -1,8 +1,13 @@
 // Headless smoke test — desktop + mobile viewports, real interactions.
-// Run after `npm run preview` is serving on http://localhost:4674.
+// Run after `npm run preview` is serving on http://localhost:4659 -- this lab's
+// port in crypto-lab/tools/playwright-ports.json. It read 4674 until 2026-11-19,
+// which the registry assigns to crypto-lab-noise-to-numbers: in CI nothing was
+// listening there, so this step died on ERR_CONNECTION_REFUSED and took the
+// accessibility audit and the Playwright WCAG suite down as skipped steps with
+// it; locally, with that sibling previewing, it would have tested ITS page.
 import { chromium, devices } from '@playwright/test';
 
-const URL = 'http://localhost:4674/crypto-lab-key-exchange/';
+const URL = 'http://localhost:4659/crypto-lab-key-exchange/';
 
 function assert(cond, msg) {
 	if (!cond) {
