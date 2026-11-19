@@ -19,7 +19,7 @@ jobs:
   # Dependabot auto-merge waits on, so "what merged it" and "what publishes it"
   # are now the same definition and cannot drift apart.
   gate:
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/gate.yml
 
   # Build only. Every gate step that used to live here -- engine tests, the
   # locked browser-runner check, the Playwright install, test:a11y and

@@ -22,101 +22,10 @@ on:
 permissions:
   contents: read
 
-jobs:
+jobs:  # The gate itself lives in gate.yml and is called from here and from
+  # deploy.yml, so there is one copy rather than two kept equal by hand.
   verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type-check + build
-        run: npm run build
-
-      - name: Engine unit tests
-        run: npm test
-
-      # Headless browser checks need a real Chromium and a running
-      # preview server. Browser dependencies come from the reviewed lockfile;
-      # a transient latest Playwright can split the CLI from the test API.
-      - name: Verify locked browser runner
-        run: node scripts/browser-deps.mjs
-
-      - name: Install browser
-        run: npx --no-install playwright install --with-deps chromium
-
-      - name: Boot preview server
-        run: |
-          npx vite preview --port 4659 --strictPort &
-          echo $! > preview.pid
-          for i in $(seq 1 30); do
-            if curl -fs http://localhost:4659/crypto-lab-key-exchange/ -o /dev/null; then
-              echo "Preview ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Preview failed to start within 30s"
-          exit 1
-
-      - name: Smoke test (Playwright, 3 viewports)
-        run: npm run smoke
-
-      - name: Accessibility audit (axe-core, WCAG 2.1 A/AA)
-        run: npm run axe
-
-      # Stop the shared preview BEFORE Playwright, which brings its own on the
-      # same 4659 with reuseExistingServer false on CI. Run the other way round
-      # it exits with "http://localhost:4659/... is already used" -- which is
-      # what happened the first time this step was reached at all, because the
-      # smoke step used to die on a wrong port and skip everything after it.
-      #
-      # `kill $(cat preview.pid)` alone is not enough: that pid is npx, and vite
-      # can outlive it holding the port. So ask the PORT, and only if it is
-      # still held, kill whatever is listening on it -- by port, never by name
-      # pattern, which on a shared machine would take out sibling runs.
-      - name: Stop preview before Playwright starts its own
-        run: |
-          if [ -f preview.pid ]; then
-            kill "$(cat preview.pid)" 2>/dev/null || true
-            rm preview.pid
-          fi
-          for i in $(seq 1 20); do
-            nc -z localhost 4659 || break
-            pid=$(lsof -ti:4659 || true)
-            [ -n "$pid" ] && kill $pid 2>/dev/null || true
-            sleep 1
-          done
-          if nc -z localhost 4659; then
-            echo "::error::port 4659 is still held; Playwright cannot bind it"
-            exit 1
-          fi
-          echo "port 4659 is free"
-
-      # Playwright suite in ./e2e: the WCAG gate plus the MitM relay exhibit's
-      # computed-outcome assertions. It boots its own preview on port 4659.
-      - name: Browser exhibit + WCAG suite (Playwright)
-        run: npm run test:a11y
-
-      # Safety net for the paths that exit before the step above.
-      - name: Stop preview
-        if: always()
-        run: |
-          if [ -f preview.pid ]; then
-            kill "$(cat preview.pid)" || true
-            rm preview.pid
-          fi
-
-      # Run after removing preview.pid: mutations require committed clean source.
-      - name: Merkle behavioural mutation gate
-        run: npm run test:mutations
+    uses: ./.github/workflows/gate.yml
 
   # Dependabot only. Depends on every gate job in this workflow, so a bump can
   # only merge itself once this lab's whole PR gate went green. Majors are
